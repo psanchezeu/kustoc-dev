@@ -11,12 +11,19 @@
     "build": "cd src && npm run build",
     "start": "node server/index.js"
   },
-  "keywords": ["kustoc", "crm", "gestion", "proyectos", "mvp"],
+  "keywords": [
+    "kustoc",
+    "crm",
+    "gestion",
+    "proyectos",
+    "mvp"
+  ],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
     "@hookform/resolvers": "^5.0.1",
+    "@tailwindcss/postcss": "^4.1.6",
     "@tanstack/react-query": "^5.76.0",
     "autoprefixer": "^10.4.21",
     "bcrypt": "^6.0.0",
