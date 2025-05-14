@@ -16,9 +16,26 @@ export default defineConfig({
       target: 'es2020'
     }
   },
+  css: {
+    // Habilitar la generación de sourcemaps para CSS
+    devSourcemap: true,
+    // Asegurarse de que PostCSS procese correctamente los archivos
+    postcss: {}
+  },
   build: {
     outDir: './dist',
-    target: 'es2020'
+    target: 'es2020',
+    // Asegurarse de que los activos estáticos se manejen correctamente
+    assetsDir: 'assets',
+    // Incluir información de sourcemaps en producción
+    sourcemap: true,
+    // Configuración para manejo de CSS
+    cssCodeSplit: true,
+    // No minimizar CSS para depuración
+    cssMinify: false,
   },
-  root: './src'
+  // Definir el directorio raíz para la aplicación
+  root: './src',
+  // Asegurarse de que las rutas base sean correctas en producción
+  base: '/'
 });
