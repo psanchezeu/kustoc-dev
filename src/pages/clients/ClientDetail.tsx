@@ -45,36 +45,16 @@ const ClientDetail = () => {
   const queryClient = useQueryClient();
   const isNewClient = id === 'new';
   
-  // Para asegurar que los valores importantes no cambien
-  const isNewClientRef = React.useRef(isNewClient);
-  
-  // Estados para controlar la UI
-  // Para clientes nuevos, siempre empezamos en modo edición
-  const isEditingRef = React.useRef(isNewClient);
-  const [isEditing, setIsEditing] = useState(isNewClient);
-  const [forceRender, setForceRender] = useState(0); // Para forzar re-renderizados cuando sea necesario
+  // Estados para controlar la UI - Siempre comenzamos en modo edición
+  const [isEditing, setIsEditing] = useState(true);
   const [showInteractionForm, setShowInteractionForm] = useState(false);
   const [interactionFile, setInteractionFile] = useState<File | null>(null);
   const [fileErrorMessage, setFileErrorMessage] = useState('');
   
-  // Función segura para cambiar el estado de edición
-  const setEditingState = (state: boolean) => {
-    isEditingRef.current = state;
-    setIsEditing(state);
-    console.log(`Estado de edición actualizado a: ${state}`);
-  };
-  
+  // Advertir al usuario sobre cambios no guardados
   useEffect(() => {
-    // Inicializar correctamente para nuevos clientes - solo se ejecuta una vez
-    if (isNewClientRef.current) {
-      console.log('Inicializando cliente nuevo en modo edición');
-      isEditingRef.current = true;
-      setEditingState(true);
-    }
-    
-    // Función para interceptar F5/recarga
     const beforeUnloadHandler = (e: BeforeUnloadEvent) => {
-      if (isEditingRef.current) {
+      if (isEditing) {
         const message = '¿Estás seguro de que quieres abandonar la página? Los cambios no guardados se perderán.';
         e.returnValue = message;
         return message;
@@ -86,7 +66,7 @@ const ClientDetail = () => {
     return () => {
       window.removeEventListener('beforeunload', beforeUnloadHandler);
     };
-  }, []);
+  }, [isEditing]);
 
   // Obtener datos del cliente si no es nuevo
   const { 
@@ -109,7 +89,7 @@ const ClientDetail = () => {
     enabled: !isNewClient && !!id
   });
 
-  // Formulario para clientes
+  // Formulario para clientes con valores predeterminados
   const { 
     register, 
     handleSubmit, 
@@ -118,7 +98,17 @@ const ClientDetail = () => {
   } = useForm<ClientFormData>({
     resolver: zodResolver(clientSchema),
     defaultValues: isNewClient ? {
-      sector: 'Otros',
+      name: '',
+      company: '',
+      sector: 'Talleres Mecánicos',
+      email: '',
+      phone: '',
+      address: '',
+      website: '',
+      tax_id: '',
+      secondary_contact: '',
+      secondary_email: '',
+      contact_notes: '',
       status: 'Prospecto'
     } : {}
   });
@@ -126,11 +116,10 @@ const ClientDetail = () => {
   // Cargar datos del cliente en el formulario cuando está disponible
   useEffect(() => {
     if (client && !isNewClient) {
-      // Usar defaultValues seguras con comprobación de nulos/undefined
       reset({
         name: client.name || '',
         company: client.company || '',
-        sector: client.sector || 'Otros',
+        sector: client.sector || 'Talleres Mecánicos',
         email: client.email || '',
         phone: client.phone || '',
         address: client.address || '',
@@ -142,7 +131,7 @@ const ClientDetail = () => {
         status: client.status || 'Prospecto'
       });
     }
-  }, [client, isNewClient, reset]);
+  }, [client, reset, isNewClient]);
 
   // Formulario para interacciones
   const {
@@ -153,18 +142,21 @@ const ClientDetail = () => {
   } = useForm<InteractionFormData>({
     resolver: zodResolver(interactionSchema),
     defaultValues: {
-      interaction_type: 'Otro'
+      interaction_type: 'Llamada'
     }
   });
-
+  
   // Mutación para crear cliente
   const createClientMutation = useMutation({
     mutationFn: createClient,
     onSuccess: (data) => {
       console.log('Cliente creado exitosamente:', data);
       queryClient.invalidateQueries({ queryKey: ['clients'] });
-      // Redirigir a la lista de clientes
-      navigate('/clients');
+      
+      // Asegurar que la redirección funcione correctamente
+      setTimeout(() => {
+        navigate('/clients');
+      }, 100);
     },
     onError: (error) => {
       console.error('Error al crear cliente:', error);
@@ -179,7 +171,7 @@ const ClientDetail = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['client', id] });
       queryClient.invalidateQueries({ queryKey: ['clients'] });
-      setEditingState(false); // Usar nuestra función segura
+      setIsEditing(false);
     }
   });
 
@@ -199,26 +191,10 @@ const ClientDetail = () => {
     }
   });
 
-  // Observamos cuando cambia isEditing para asegurarnos de que el formulario es editable
-  useEffect(() => {
-    console.log('Estado de edición:', isEditing);
-  }, [isEditing]);
-
   // Manejar submit del formulario de cliente
   const onSubmitClient = async (data: ClientFormData) => {
     try {
       console.log('Enviando datos del formulario:', data);
-      console.log('Estado de edición (ref):', isEditingRef.current, 'Es nuevo cliente:', isNewClientRef.current);
-      
-      // Asegurar que el formulario esté en modo edición
-      if (!isEditingRef.current) {
-        console.warn('Estado de edición era false, forzando a true para el envío');
-        setEditingState(true);
-      }
-      
-      // Mostrar un mensaje de carga
-      const mensaje = isNewClientRef.current ? 'Creando cliente...' : 'Actualizando cliente...';
-      console.log(mensaje);
       
       // Prevenir múltiples envíos simultáneos
       if (createClientMutation.isPending || updateClientMutation.isPending) {
@@ -226,13 +202,11 @@ const ClientDetail = () => {
         return;
       }
       
-      if (isNewClientRef.current) {
+      if (isNewClient) {
         console.log('Creando nuevo cliente con datos:', data);
-        // Llamamos a la mutación para crear el cliente
         createClientMutation.mutate(data);
       } else if (id) {
         console.log('Actualizando cliente existente:', id, 'con datos:', data);
-        // Llamamos a la mutación para actualizar el cliente
         updateClientMutation.mutate({ id, clientData: data });
       }
     } catch (error) {
@@ -300,8 +274,8 @@ const ClientDetail = () => {
         </h1>
         <div className="flex space-x-2">
           {/* Mostrar botón Editar solo para clientes existentes en modo visualización */}
-          {!isNewClientRef.current && !isEditingRef.current && (
-            <Button onClick={() => setEditingState(true)}>Editar</Button>
+          {!isNewClient && !isEditing && (
+            <Button onClick={() => setIsEditing(true)}>Editar</Button>
           )}
           {/* Siempre mostrar botón Volver */}
           <Button 
@@ -333,7 +307,7 @@ const ClientDetail = () => {
                     className={`w-full px-3 py-2 border rounded-md text-sm ${
                       errors.name ? 'border-destructive' : 'border-input'
                     }`}
-                    disabled={!isEditingRef.current}
+                    disabled={!isEditing}
                     {...register('name')}
                   />
                   {errors.name && (
@@ -350,7 +324,7 @@ const ClientDetail = () => {
                     className={`w-full px-3 py-2 border rounded-md text-sm ${
                       errors.company ? 'border-destructive' : 'border-input'
                     }`}
-                    disabled={!isEditingRef.current}
+                    disabled={!isEditing}
                     {...register('company')}
                   />
                   {errors.company && (
@@ -366,7 +340,7 @@ const ClientDetail = () => {
                     className={`w-full px-3 py-2 border rounded-md text-sm ${
                       errors.sector ? 'border-destructive' : 'border-input'
                     }`}
-                    disabled={!isEditingRef.current}
+                    disabled={!isEditing}
                     {...register('sector')}
                   >
                     <option value="Talleres Mecánicos">Talleres Mecánicos</option>
@@ -389,7 +363,7 @@ const ClientDetail = () => {
                     className={`w-full px-3 py-2 border rounded-md text-sm ${
                       errors.email ? 'border-destructive' : 'border-input'
                     }`}
-                    disabled={!isEditingRef.current}
+                    disabled={!isEditing}
                     {...register('email')}
                   />
                   {errors.email && (
@@ -406,7 +380,7 @@ const ClientDetail = () => {
                     className={`w-full px-3 py-2 border rounded-md text-sm ${
                       errors.phone ? 'border-destructive' : 'border-input'
                     }`}
-                    disabled={!isEditingRef.current}
+                    disabled={!isEditing}
                     {...register('phone')}
                   />
                   {errors.phone && (
@@ -423,7 +397,7 @@ const ClientDetail = () => {
                     className={`w-full px-3 py-2 border rounded-md text-sm ${
                       errors.tax_id ? 'border-destructive' : 'border-input'
                     }`}
-                    disabled={!isEditingRef.current}
+                    disabled={!isEditing}
                     {...register('tax_id')}
                   />
                   {errors.tax_id && (
@@ -442,7 +416,7 @@ const ClientDetail = () => {
                       errors.address ? 'border-destructive' : 'border-input'
                     }`}
                     rows={2}
-                    disabled={!isEditingRef.current}
+                    disabled={!isEditing}
                     {...register('address')}
                   />
                   {errors.address && (
@@ -459,7 +433,7 @@ const ClientDetail = () => {
                     className={`w-full px-3 py-2 border rounded-md text-sm ${
                       errors.website ? 'border-destructive' : 'border-input'
                     }`}
-                    disabled={!isEditingRef.current}
+                    disabled={!isEditing}
                     {...register('website')}
                   />
                   {errors.website && (
@@ -476,7 +450,7 @@ const ClientDetail = () => {
                     className={`w-full px-3 py-2 border rounded-md text-sm ${
                       errors.secondary_contact ? 'border-destructive' : 'border-input'
                     }`}
-                    disabled={!isEditingRef.current}
+                    disabled={!isEditing}
                     {...register('secondary_contact')}
                   />
                   {errors.secondary_contact && (
@@ -493,7 +467,7 @@ const ClientDetail = () => {
                     className={`w-full px-3 py-2 border rounded-md text-sm ${
                       errors.secondary_email ? 'border-destructive' : 'border-input'
                     }`}
-                    disabled={!isEditingRef.current}
+                    disabled={!isEditing}
                     {...register('secondary_email')}
                   />
                   {errors.secondary_email && (
@@ -509,7 +483,7 @@ const ClientDetail = () => {
                     className={`w-full px-3 py-2 border rounded-md text-sm ${
                       errors.status ? 'border-destructive' : 'border-input'
                     }`}
-                    disabled={!isEditingRef.current}
+                    disabled={!isEditing}
                     {...register('status')}
                   >
                     <option value="Prospecto">Prospecto</option>
@@ -524,14 +498,14 @@ const ClientDetail = () => {
                 
                 <div>
                   <label className="block text-sm font-medium text-muted-foreground mb-1">
-                    Notas de Contacto
+                    Notas
                   </label>
                   <textarea
                     className={`w-full px-3 py-2 border rounded-md text-sm ${
                       errors.contact_notes ? 'border-destructive' : 'border-input'
                     }`}
                     rows={2}
-                    disabled={!isEditingRef.current}
+                    disabled={!isEditing}
                     {...register('contact_notes')}
                   />
                   {errors.contact_notes && (
@@ -540,82 +514,51 @@ const ClientDetail = () => {
                 </div>
               </div>
             </div>
+            
+            <div className="flex justify-end mt-6 space-x-2">
+              {isEditing && (
+                <>
+                  <Button 
+                    type="button" 
+                    variant="outline" 
+                    onClick={() => setIsEditing(false)}
+                    disabled={isNewClient}
+                  >
+                    Cancelar
+                  </Button>
+                  <Button 
+                    type="submit"
+                    isLoading={isSubmittingClient}
+                    disabled={createClientMutation.isPending || updateClientMutation.isPending}
+                  >
+                    Guardar
+                  </Button>
+                </>
+              )}
+              
+              {!isEditing && (
+                <Button 
+                  type="button" 
+                  onClick={() => setShowInteractionForm(prev => !prev)}
+                >
+                  {showInteractionForm ? 'Cancelar Interacción' : 'Nueva Interacción'}
+                </Button>
+              )}
+            </div>
           </form>
         </CardContent>
-        <CardFooter className="flex justify-between">
-          {isEditingRef.current && (
-            <>
-              <Button 
-                type="button"
-                variant="outline"
-                onClick={() => {
-                // Si es un cliente nuevo, volver a la lista
-                if (isNewClientRef.current) {
-                  navigate('/clients');
-                } else {
-                  // Si es un cliente existente, cancelar la edición
-                  setEditingState(false);
-                  // Recargar los datos originales
-                  if (client) {
-                    reset({
-                      name: client.name || '',
-                      company: client.company || '',
-                      sector: client.sector || 'Otros',
-                      email: client.email || '',
-                      phone: client.phone || '',
-                      address: client.address || '',
-                      website: client.website || '',
-                      tax_id: client.tax_id || '',
-                      secondary_contact: client.secondary_contact || '',
-                      secondary_email: client.secondary_email || '',
-                      contact_notes: client.contact_notes || '',
-                      status: client.status || 'Prospecto'
-                    });
-                  }
-                }
-              }}
-              >
-                Cancelar
-              </Button>
-              <Button 
-                type="submit"
-                form="clientForm"
-                disabled={isSubmittingClient || createClientMutation.isPending || updateClientMutation.isPending}
-                className="bg-primary hover:bg-primary/90"
-              >
-                {isSubmittingClient || createClientMutation.isPending || updateClientMutation.isPending
-                  ? 'Guardando...'
-                  : isNewClientRef.current
-                    ? 'Crear Cliente'
-                    : 'Actualizar Cliente'}
-              </Button>
-            </>
-          )}
-        </CardFooter>
       </Card>
       
-      {/* Sección de Interacciones - Solo visible para clientes existentes */}
+      {/* Interacciones - Solo mostrar para clientes existentes */}
       {!isNewClient && (
-        <Card>
+        <Card className="max-w-3xl mx-auto">
           <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle>Historial de Interacciones</CardTitle>
-              <Button 
-                onClick={() => setShowInteractionForm(!showInteractionForm)}
-                size="sm"
-              >
-                {showInteractionForm ? 'Cancelar' : 'Nueva Interacción'}
-              </Button>
-            </div>
+            <CardTitle>Interacciones</CardTitle>
           </CardHeader>
           <CardContent>
-            {/* Formulario de nueva interacción */}
+            {/* Formulario de interacción */}
             {showInteractionForm && (
-              <form 
-                className="mb-6 p-4 border rounded-md"
-                onSubmit={handleSubmitInteraction(onSubmitInteraction)}
-              >
-                <h3 className="text-lg font-medium mb-4">Nueva Interacción</h3>
+              <form onSubmit={handleSubmitInteraction(onSubmitInteraction)} className="border-b pb-6 mb-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-muted-foreground mb-1">
@@ -641,7 +584,7 @@ const ClientDetail = () => {
                   
                   <div>
                     <label className="block text-sm font-medium text-muted-foreground mb-1">
-                      Archivo (Opcional)
+                      Archivo adjunto (opcional)
                     </label>
                     <input
                       type="file"
