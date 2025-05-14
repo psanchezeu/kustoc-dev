@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kustoc - Dashboard</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="bg-gray-100">
+  <div class="dashboard-layout">
+    <div class="sidebar">
+      <h1 class="text-xl font-bold mb-4">Kustoc</h1>
+      <nav>
+        <a href="/" class="sidebar-link">Dashboard</a>
+        <a href="/clientes" class="sidebar-link">Clientes</a>
+        <a href="/jumps" class="sidebar-link">Jumps</a>
+        <a href="/facturas" class="sidebar-link">Facturas</a>
+        <a href="/claves-api" class="sidebar-link">Claves API</a>
+        <a href="/referidos" class="sidebar-link">Referidos</a>
+        <a href="/proyectos" class="sidebar-link">Proyectos</a>
+        <a href="/copilotos" class="sidebar-link">Copilotos</a>
+      </nav>
+    </div>
+    <main class="p-6">
+      <div class="flex justify-between items-center mb-6">
+        <h1 class="text-2xl font-bold">Dashboard</h1>
+        <div><span class="text-gray-600">admin@kustoc.com</span></div>
+      </div>
+      <div class="card">
+        <h2 class="text-lg font-bold mb-3">Estado del Sistema</h2>
+        <p class="text-gray-600">✅ El servidor API está funcionando correctamente</p>
+        <p class="text-gray-600">📡 API disponible en: <code>http://localhost:35759/api</code></p>
+      </div>
+      <div class="card">
+        <h2 class="text-lg font-bold mb-3">Actividad Reciente</h2>
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Tipo</th>
+              <th>Fecha</th>
+              <th>Usuario</th>
+              <th>Detalles</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Login</td>
+              <td>Hoy, 10:25</td>
+              <td>admin@kustoc.com</td>
+              <td>Inicio de sesión exitoso</td>
+            </tr>
+            <tr>
+              <td>Cliente</td>
+              <td>Ayer, 15:30</td>
+              <td>admin@kustoc.com</td>
+              <td>Nuevo cliente agregado: MegaCorp S.L.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

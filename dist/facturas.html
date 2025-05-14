@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kustoc - Facturas</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="bg-gray-100">
+  <div class="dashboard-layout">
+    <div class="sidebar">
+      <h1 class="text-xl font-bold mb-4">Kustoc</h1>
+      <nav>
+        <a href="/" class="sidebar-link">Dashboard</a>
+        <a href="/clientes" class="sidebar-link">Clientes</a>
+        <a href="/jumps" class="sidebar-link">Jumps</a>
+        <a href="/facturas" class="sidebar-link">Facturas</a>
+        <a href="/claves-api" class="sidebar-link">Claves API</a>
+        <a href="/referidos" class="sidebar-link">Referidos</a>
+        <a href="/proyectos" class="sidebar-link">Proyectos</a>
+        <a href="/copilotos" class="sidebar-link">Copilotos</a>
+      </nav>
+    </div>
+    <main class="p-6">
+      <div class="flex justify-between items-center mb-6">
+        <h1 class="text-2xl font-bold">Facturas</h1>
+        <div><span class="text-gray-600">admin@kustoc.com</span></div>
+      </div>
+      <div class="card">
+        <h2 class="text-lg font-bold mb-4">Gestión de Facturas</h2>
+        <div class="grid grid-cols-2 gap-4 mb-4">
+          <div>
+            <label class="block text-gray-700 mb-2">Cliente</label>
+            <select class="form-control">
+              <option>Todos los clientes</option>
+              <option>María García</option>
+              <option>Juan Pérez</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-gray-700 mb-2">Estado</label>
+            <select class="form-control">
+              <option>Todos los estados</option>
+              <option>Pagada</option>
+              <option>Pendiente</option>
+              <option>Vencida</option>
+            </select>
+          </div>
+        </div>
+        
+        <div class="flex justify-between items-center mt-6 mb-3">
+          <h3 class="text-lg font-bold">Listado de Facturas</h3>
+          <button class="btn-primary">Nueva Factura</button>
+        </div>
+        
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Número</th>
+              <th>Cliente</th>
+              <th>Fecha</th>
+              <th>Total</th>
+              <th>Estado</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>F-2025-001</td>
+              <td>María García</td>
+              <td>05/03/2025</td>
+              <td>1,250.00 €</td>
+              <td><span class="badge badge-green">Pagada</span></td>
+              <td>
+                <a href="#" class="text-blue-500">Ver</a>
+                <a href="#" class="text-blue-500 ml-2">Descargar</a>
+              </td>
+            </tr>
+            <tr>
+              <td>F-2025-002</td>
+              <td>Juan Pérez</td>
+              <td>20/04/2025</td>
+              <td>850.00 €</td>
+              <td><span class="badge badge-yellow">Pendiente</span></td>
+              <td>
+                <a href="#" class="text-blue-500">Ver</a>
+                <a href="#" class="text-blue-500 ml-2">Descargar</a>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

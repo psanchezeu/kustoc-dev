@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kustoc - Referidos</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="bg-gray-100">
+  <div class="dashboard-layout">
+    <div class="sidebar">
+      <h1 class="text-xl font-bold mb-4">Kustoc</h1>
+      <nav>
+        <a href="/" class="sidebar-link">Dashboard</a>
+        <a href="/clientes" class="sidebar-link">Clientes</a>
+        <a href="/jumps" class="sidebar-link">Jumps</a>
+        <a href="/facturas" class="sidebar-link">Facturas</a>
+        <a href="/claves-api" class="sidebar-link">Claves API</a>
+        <a href="/referidos" class="sidebar-link">Referidos</a>
+        <a href="/proyectos" class="sidebar-link">Proyectos</a>
+        <a href="/copilotos" class="sidebar-link">Copilotos</a>
+      </nav>
+    </div>
+    <main class="p-6">
+      <div class="flex justify-between items-center mb-6">
+        <h1 class="text-2xl font-bold">Enlaces de Referidos</h1>
+        <button class="btn-primary">Nuevo Enlace</button>
+      </div>
+      <div class="card">
+        <h2 class="text-lg font-bold mb-4">Gestión de Enlaces de Referidos</h2>
+        <input type="text" placeholder="Buscar por nombre, email o código..." class="form-control">
+        <select class="form-control">
+          <option>Todos los estados</option>
+          <option>Pendiente</option>
+          <option>Registrado</option>
+          <option>Convertido</option>
+        </select>
+        
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Código</th>
+              <th>Nombre</th>
+              <th>Email</th>
+              <th>Estado</th>
+              <th>Fecha de Creación</th>
+              <th>Convertido a Cliente</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>AMIGO10</td>
+              <td>Carlos López</td>
+              <td>carlos@ejemplo.com</td>
+              <td><span class="badge badge-yellow">Pendiente</span></td>
+              <td>10/06/2023</td>
+              <td>-</td>
+              <td>
+                <button class="bg-blue-100 text-blue-700 px-2 py-1 rounded text-sm">Copiar Enlace</button>
+                <a href="#" class="text-blue-500 ml-2">Detalles</a>
+              </td>
+            </tr>
+            <tr>
+              <td>ELENA20</td>
+              <td>Elena Martínez</td>
+              <td>elena@ejemplo.com</td>
+              <td><span class="badge badge-blue">Registrado</span></td>
+              <td>15/07/2023</td>
+              <td>-</td>
+              <td>
+                <button class="bg-blue-100 text-blue-700 px-2 py-1 rounded text-sm">Copiar Enlace</button>
+                <a href="#" class="text-blue-500 ml-2">Detalles</a>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+</body>
+</html>
