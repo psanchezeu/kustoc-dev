@@ -4,6 +4,8 @@ import { resolve } from 'path';
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  // Asegurar que los archivos estáticos se procesen correctamente
+  publicDir: './src/public',
   plugins: [react()],
   resolve: {
     alias: {
