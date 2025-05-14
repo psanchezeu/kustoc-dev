@@ -70,6 +70,9 @@ export const getClientById = async (id: string): Promise<Client | null> => {
  */
 export const createClient = async (clientData: Omit<Client, 'client_id' | 'created_at' | 'last_interaction'>): Promise<Client | null> => {
   try {
+    console.log('Enviando datos de cliente al servidor:', clientData);
+    console.log('URL de la API:', `${SERVER_CONFIG.BASE_URL}/api/clients`);
+    
     const response = await fetch(`${SERVER_CONFIG.BASE_URL}/api/clients`, {
       method: 'POST',
       headers: {
@@ -79,12 +82,17 @@ export const createClient = async (clientData: Omit<Client, 'client_id' | 'creat
     });
     
     if (!response.ok) {
-      throw new Error('Error al crear cliente');
+      const errorText = await response.text();
+      console.error('Respuesta de error del servidor:', response.status, errorText);
+      throw new Error(`Error al crear cliente: ${response.status} ${errorText}`);
     }
     
-    return await response.json();
+    const data = await response.json();
+    console.log('Respuesta del servidor (cliente creado):', data);
+    return data;
   } catch (error) {
     console.error('Error en createClient:', error);
+    alert(`Error al crear cliente: ${error instanceof Error ? error.message : 'Error desconocido'}`);
     return null;
   }
 };

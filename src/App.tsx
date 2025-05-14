@@ -9,7 +9,7 @@ import DashboardLayout from './layouts/DashboardLayout';
 // Pages
 import Dashboard from './pages/Dashboard';
 import Clients from './pages/clients/Clients';
-import ClientDetail from './pages/clients/ClientDetail';
+import ClientDetailNew from './pages/clients/ClientDetailNew';
 import Jumps from './pages/jumps/Jumps';
 import JumpDetail from './pages/jumps/JumpDetail';
 import Invoices from './pages/invoices/Invoices';
@@ -40,8 +40,8 @@ const App = () => {
             {/* Clientes */}
             <Route path="clients">
               <Route index element={<Clients />} />
-              <Route path="new" element={<ClientDetail />} />
-              <Route path=":id" element={<ClientDetail />} />
+              <Route path="new" element={<ClientDetailNew />} />
+              <Route path=":id" element={<ClientDetailNew />} />
             </Route>
             
             {/* Jumps */}
