@@ -40,7 +40,7 @@ const ApiKeyDetail = () => {
     formState: { errors },
     reset,
   } = useForm<ApiKeyFormData>({
-    resolver: zodResolver(apiKeySchema),
+    resolver: zodResolver(apiKeySchema) as any, // Usamos any para evitar el error de tipo
     defaultValues: {
       name: '',
       client_id: '',
@@ -247,7 +247,7 @@ const ApiKeyDetail = () => {
                 </div>
               )}
               
-              <form id="api-key-form" onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+              <form id="api-key-form" onSubmit={handleSubmit(onSubmit as any)} className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <Label htmlFor="name">Nombre</Label>

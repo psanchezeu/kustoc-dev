@@ -17,10 +17,11 @@
     "jsx": "react-jsx",
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./"]
     },
     "typeRoots": ["./node_modules/@types", "./jsx.d.ts"],
-    "jsxImportSource": "react"
+    "jsxImportSource": "react",
+    "allowImportingTsExtensions": true
   },
   "include": [".", "**/*.ts", "**/*.tsx", "jsx.d.ts"],
   "references": [{ "path": "./tsconfig.node.json" }]

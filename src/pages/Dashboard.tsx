@@ -7,7 +7,32 @@ import { Button } from '../components/ui/Button';
  * Dashboard principal que muestra resumen de información y accesos rápidos
  */
 const Dashboard = () => {
-  const [stats, setStats] = useState({
+  // Definir interfaces para los tipos
+  interface Client {
+    id: string;
+    name: string;
+    company: string;
+    status: string;
+  }
+
+  interface Project {
+    id: string;
+    name: string;
+    client: string;
+    status: string;
+  }
+
+  interface DashboardStats {
+    clientCount: number;
+    projectCount: number;
+    jumpCount: number;
+    invoiceCount: number;
+    pendingInvoicesAmount: number;
+    recentClients: Client[];
+    recentProjects: Project[];
+  }
+
+  const [stats, setStats] = useState<DashboardStats>({
     clientCount: 0,
     projectCount: 0,
     jumpCount: 0,
