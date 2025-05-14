@@ -1,6 +1,6 @@
 export const SERVER_CONFIG = {
-  IP: 'localhost',
-  PORT: 3001,
+  IP: '[IP]',
+  PORT: [PUERTO],
   get BASE_URL() {
     return `http://${this.IP}:${this.PORT}`;
   }
