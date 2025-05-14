@@ -45,23 +45,48 @@ const ClientDetail = () => {
   const queryClient = useQueryClient();
   const isNewClient = id === 'new';
   
+  // Para asegurar que los valores importantes no cambien
+  const isNewClientRef = React.useRef(isNewClient);
+  
   // Estados para controlar la UI
-  const [isEditing, setIsEditing] = useState(isNewClient || false);
+  // Usamos directamente un ref para el estado de edición para evitar re-renderizaciones
+  const isEditingRef = React.useRef(isNewClient);
+  const [isEditing, setIsEditing] = useState(isNewClient);
+  const [forceRender, setForceRender] = useState(0); // Para forzar re-renderizados cuando sea necesario
   const [showInteractionForm, setShowInteractionForm] = useState(false);
   const [interactionFile, setInteractionFile] = useState<File | null>(null);
   const [fileErrorMessage, setFileErrorMessage] = useState('');
   
-  // Forzar modo edición para nuevos clientes - usar un ref para evitar cambios inesperados
-  const initialSetupDone = React.useRef(false);
+  // Función segura para cambiar el estado de edición
+  const setEditingState = (state: boolean) => {
+    isEditingRef.current = state;
+    setIsEditing(state);
+    console.log(`Estado de edición actualizado a: ${state}`);
+  };
   
   useEffect(() => {
-    // Solo ejecutar una vez para clientes nuevos
-    if (isNewClient && !initialSetupDone.current) {
-      setIsEditing(true);
-      initialSetupDone.current = true;
-      console.log('Forzando modo edición para nuevo cliente');
+    // Inicializar correctamente para nuevos clientes - solo se ejecuta una vez
+    if (isNewClientRef.current) {
+      console.log('Inicializando cliente nuevo en modo edición');
+      isEditingRef.current = true;
+      setEditingState(true);
     }
-  }, [isNewClient]);
+    
+    // Función para interceptar F5/recarga
+    const beforeUnloadHandler = (e: BeforeUnloadEvent) => {
+      if (isEditingRef.current) {
+        const message = '¿Estás seguro de que quieres abandonar la página? Los cambios no guardados se perderán.';
+        e.returnValue = message;
+        return message;
+      }
+    };
+    
+    window.addEventListener('beforeunload', beforeUnloadHandler);
+    
+    return () => {
+      window.removeEventListener('beforeunload', beforeUnloadHandler);
+    };
+  }, []);
 
   // Obtener datos del cliente si no es nuevo
   const { 
@@ -148,7 +173,7 @@ const ClientDetail = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['client', id] });
       queryClient.invalidateQueries({ queryKey: ['clients'] });
-      setIsEditing(false);
+      setEditingState(false); // Usar nuestra función segura
     }
   });
 
@@ -177,9 +202,15 @@ const ClientDetail = () => {
   const onSubmitClient = async (data: ClientFormData) => {
     try {
       console.log('Enviando datos del formulario:', data);
-      console.log('Estado de edición:', isEditing, 'Es nuevo cliente:', isNewClient);
+      console.log('Estado de edición (ref):', isEditingRef.current, 'Es nuevo cliente:', isNewClientRef.current);
       
-      if (isNewClient) {
+      // Forzamos el estado de edición a true para asegurar que el formulario sea editable durante el envío
+      if (!isEditingRef.current) {
+        console.warn('Estado de edición era false, forzando a true para el envío');
+        setEditingState(true);
+      }
+      
+      if (isNewClientRef.current) {
         console.log('Creando nuevo cliente con datos:', data);
         createClientMutation.mutate(data);
       } else if (id) {
@@ -250,7 +281,7 @@ const ClientDetail = () => {
         </h1>
         <div className="flex space-x-2">
           {!isNewClient && !isEditing && (
-            <Button onClick={() => setIsEditing(true)}>Editar</Button>
+            <Button onClick={() => setEditingState(true)}>Editar</Button>
           )}
           <Button 
             variant="outline" 
@@ -281,7 +312,7 @@ const ClientDetail = () => {
                     className={`w-full px-3 py-2 border rounded-md text-sm ${
                       errors.name ? 'border-destructive' : 'border-input'
                     }`}
-                    disabled={!isEditing}
+                    disabled={!isEditingRef.current}
                     {...register('name')}
                   />
                   {errors.name && (
@@ -298,7 +329,7 @@ const ClientDetail = () => {
                     className={`w-full px-3 py-2 border rounded-md text-sm ${
                       errors.company ? 'border-destructive' : 'border-input'
                     }`}
-                    disabled={!isEditing}
+                    disabled={!isEditingRef.current}
                     {...register('company')}
                   />
                   {errors.company && (
@@ -314,7 +345,7 @@ const ClientDetail = () => {
                     className={`w-full px-3 py-2 border rounded-md text-sm ${
                       errors.sector ? 'border-destructive' : 'border-input'
                     }`}
-                    disabled={!isEditing}
+                    disabled={!isEditingRef.current}
                     {...register('sector')}
                   >
                     <option value="Talleres Mecánicos">Talleres Mecánicos</option>
@@ -337,7 +368,7 @@ const ClientDetail = () => {
                     className={`w-full px-3 py-2 border rounded-md text-sm ${
                       errors.email ? 'border-destructive' : 'border-input'
                     }`}
-                    disabled={!isEditing}
+                    disabled={!isEditingRef.current}
                     {...register('email')}
                   />
                   {errors.email && (
@@ -354,7 +385,7 @@ const ClientDetail = () => {
                     className={`w-full px-3 py-2 border rounded-md text-sm ${
                       errors.phone ? 'border-destructive' : 'border-input'
                     }`}
-                    disabled={!isEditing}
+                    disabled={!isEditingRef.current}
                     {...register('phone')}
                   />
                   {errors.phone && (
@@ -371,7 +402,7 @@ const ClientDetail = () => {
                     className={`w-full px-3 py-2 border rounded-md text-sm ${
                       errors.tax_id ? 'border-destructive' : 'border-input'
                     }`}
-                    disabled={!isEditing}
+                    disabled={!isEditingRef.current}
                     {...register('tax_id')}
                   />
                   {errors.tax_id && (
@@ -390,7 +421,7 @@ const ClientDetail = () => {
                       errors.address ? 'border-destructive' : 'border-input'
                     }`}
                     rows={2}
-                    disabled={!isEditing}
+                    disabled={!isEditingRef.current}
                     {...register('address')}
                   />
                   {errors.address && (
@@ -407,7 +438,7 @@ const ClientDetail = () => {
                     className={`w-full px-3 py-2 border rounded-md text-sm ${
                       errors.website ? 'border-destructive' : 'border-input'
                     }`}
-                    disabled={!isEditing}
+                    disabled={!isEditingRef.current}
                     {...register('website')}
                   />
                   {errors.website && (
@@ -424,7 +455,7 @@ const ClientDetail = () => {
                     className={`w-full px-3 py-2 border rounded-md text-sm ${
                       errors.secondary_contact ? 'border-destructive' : 'border-input'
                     }`}
-                    disabled={!isEditing}
+                    disabled={!isEditingRef.current}
                     {...register('secondary_contact')}
                   />
                   {errors.secondary_contact && (
@@ -441,7 +472,7 @@ const ClientDetail = () => {
                     className={`w-full px-3 py-2 border rounded-md text-sm ${
                       errors.secondary_email ? 'border-destructive' : 'border-input'
                     }`}
-                    disabled={!isEditing}
+                    disabled={!isEditingRef.current}
                     {...register('secondary_email')}
                   />
                   {errors.secondary_email && (
@@ -457,7 +488,7 @@ const ClientDetail = () => {
                     className={`w-full px-3 py-2 border rounded-md text-sm ${
                       errors.status ? 'border-destructive' : 'border-input'
                     }`}
-                    disabled={!isEditing}
+                    disabled={!isEditingRef.current}
                     {...register('status')}
                   >
                     <option value="Prospecto">Prospecto</option>
@@ -479,7 +510,7 @@ const ClientDetail = () => {
                       errors.contact_notes ? 'border-destructive' : 'border-input'
                     }`}
                     rows={2}
-                    disabled={!isEditing}
+                    disabled={!isEditingRef.current}
                     {...register('contact_notes')}
                   />
                   {errors.contact_notes && (
@@ -499,7 +530,7 @@ const ClientDetail = () => {
                   if (isNewClient) {
                     navigate('/clients');
                   } else {
-                    setIsEditing(false);
+                    setEditingState(false);
                     reset();
                   }
                 }}
