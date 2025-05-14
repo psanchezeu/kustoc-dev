@@ -49,7 +49,7 @@ const ClientDetail = () => {
   const isNewClientRef = React.useRef(isNewClient);
   
   // Estados para controlar la UI
-  // Usamos directamente un ref para el estado de edición para evitar re-renderizaciones
+  // Para clientes nuevos, siempre empezamos en modo edición
   const isEditingRef = React.useRef(isNewClient);
   const [isEditing, setIsEditing] = useState(isNewClient);
   const [forceRender, setForceRender] = useState(0); // Para forzar re-renderizados cuando sea necesario
@@ -160,9 +160,15 @@ const ClientDetail = () => {
   // Mutación para crear cliente
   const createClientMutation = useMutation({
     mutationFn: createClient,
-    onSuccess: () => {
+    onSuccess: (data) => {
+      console.log('Cliente creado exitosamente:', data);
       queryClient.invalidateQueries({ queryKey: ['clients'] });
+      // Redirigir a la lista de clientes
       navigate('/clients');
+    },
+    onError: (error) => {
+      console.error('Error al crear cliente:', error);
+      alert('Error al crear el cliente. Por favor intenta nuevamente.');
     }
   });
 
@@ -204,21 +210,34 @@ const ClientDetail = () => {
       console.log('Enviando datos del formulario:', data);
       console.log('Estado de edición (ref):', isEditingRef.current, 'Es nuevo cliente:', isNewClientRef.current);
       
-      // Forzamos el estado de edición a true para asegurar que el formulario sea editable durante el envío
+      // Asegurar que el formulario esté en modo edición
       if (!isEditingRef.current) {
         console.warn('Estado de edición era false, forzando a true para el envío');
         setEditingState(true);
       }
       
+      // Mostrar un mensaje de carga
+      const mensaje = isNewClientRef.current ? 'Creando cliente...' : 'Actualizando cliente...';
+      console.log(mensaje);
+      
+      // Prevenir múltiples envíos simultáneos
+      if (createClientMutation.isPending || updateClientMutation.isPending) {
+        console.log('Ya hay una operación en curso, esperando...');
+        return;
+      }
+      
       if (isNewClientRef.current) {
         console.log('Creando nuevo cliente con datos:', data);
+        // Llamamos a la mutación para crear el cliente
         createClientMutation.mutate(data);
       } else if (id) {
         console.log('Actualizando cliente existente:', id, 'con datos:', data);
+        // Llamamos a la mutación para actualizar el cliente
         updateClientMutation.mutate({ id, clientData: data });
       }
     } catch (error) {
       console.error('Error al enviar formulario de cliente:', error);
+      alert('Ocurrió un error inesperado. Por favor, intenta nuevamente.');
     }
   };
 
@@ -280,9 +299,11 @@ const ClientDetail = () => {
           {isNewClient ? 'Nuevo Cliente' : `Cliente: ${client?.name}`}
         </h1>
         <div className="flex space-x-2">
-          {!isNewClient && !isEditing && (
+          {/* Mostrar botón Editar solo para clientes existentes en modo visualización */}
+          {!isNewClientRef.current && !isEditingRef.current && (
             <Button onClick={() => setEditingState(true)}>Editar</Button>
           )}
+          {/* Siempre mostrar botón Volver */}
           <Button 
             variant="outline" 
             onClick={() => navigate('/clients')}
@@ -521,28 +542,52 @@ const ClientDetail = () => {
             </div>
           </form>
         </CardContent>
-        <CardFooter className="flex justify-end space-x-2">
-          {isEditing && (
+        <CardFooter className="flex justify-between">
+          {isEditingRef.current && (
             <>
               <Button 
+                type="button"
                 variant="outline"
                 onClick={() => {
-                  if (isNewClient) {
-                    navigate('/clients');
-                  } else {
-                    setEditingState(false);
-                    reset();
+                // Si es un cliente nuevo, volver a la lista
+                if (isNewClientRef.current) {
+                  navigate('/clients');
+                } else {
+                  // Si es un cliente existente, cancelar la edición
+                  setEditingState(false);
+                  // Recargar los datos originales
+                  if (client) {
+                    reset({
+                      name: client.name || '',
+                      company: client.company || '',
+                      sector: client.sector || 'Otros',
+                      email: client.email || '',
+                      phone: client.phone || '',
+                      address: client.address || '',
+                      website: client.website || '',
+                      tax_id: client.tax_id || '',
+                      secondary_contact: client.secondary_contact || '',
+                      secondary_email: client.secondary_email || '',
+                      contact_notes: client.contact_notes || '',
+                      status: client.status || 'Prospecto'
+                    });
                   }
-                }}
+                }
+              }}
               >
                 Cancelar
               </Button>
               <Button 
                 type="submit"
                 form="clientForm"
-                isLoading={isSubmittingClient || createClientMutation.isPending || updateClientMutation.isPending}
+                disabled={isSubmittingClient || createClientMutation.isPending || updateClientMutation.isPending}
+                className="bg-primary hover:bg-primary/90"
               >
-                {isNewClient ? 'Crear Cliente' : 'Guardar Cambios'}
+                {isSubmittingClient || createClientMutation.isPending || updateClientMutation.isPending
+                  ? 'Guardando...'
+                  : isNewClientRef.current
+                    ? 'Crear Cliente'
+                    : 'Actualizar Cliente'}
               </Button>
             </>
           )}
