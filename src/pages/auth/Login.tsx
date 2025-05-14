@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -23,10 +23,14 @@ const Login = () => {
   const { login, isAuthenticated } = useAuth();
   const [loginError, setLoginError] = useState('');
 
-  // Si ya está autenticado, redirigir al dashboard
-  if (isAuthenticated) {
-    navigate('/');
-  }
+  // Usar useEffect para la navegación si el usuario está autenticado
+  
+  useEffect(() => {
+    // Si ya está autenticado, redirigir al dashboard
+    if (isAuthenticated) {
+      navigate('/');
+    }
+  }, [isAuthenticated, navigate]);
 
   const { 
     register, 

@@ -2,9 +2,9 @@
 export default {
   content: [
     "./index.html",
-    "./**/*.{js,ts,jsx,tsx}",
-    "../src/**/*.{js,ts,jsx,tsx}", // Asegurar que funcione desde la raíz del proyecto
-    "../../src/**/*.{js,ts,jsx,tsx}", // Nivel adicional para despliegue
+    "./!(node_modules)/**/*.{js,ts,jsx,tsx}",
+    "../src/!(node_modules)/**/*.{js,ts,jsx,tsx}", // Asegurar que funcione desde la raíz del proyecto
+    "../../src/!(node_modules)/**/*.{js,ts,jsx,tsx}", // Nivel adicional para despliegue
   ],
   // Asegurar que funcione en cualquier entorno
   safelist: [
