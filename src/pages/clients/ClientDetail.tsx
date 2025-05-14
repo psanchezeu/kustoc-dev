@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
@@ -46,15 +46,20 @@ const ClientDetail = () => {
   const isNewClient = id === 'new';
   
   // Estados para controlar la UI
-  const [isEditing, setIsEditing] = useState(isNewClient);
+  const [isEditing, setIsEditing] = useState(isNewClient || false);
   const [showInteractionForm, setShowInteractionForm] = useState(false);
   const [interactionFile, setInteractionFile] = useState<File | null>(null);
   const [fileErrorMessage, setFileErrorMessage] = useState('');
   
-  // Forzar modo edición para nuevos clientes
+  // Forzar modo edición para nuevos clientes - usar un ref para evitar cambios inesperados
+  const initialSetupDone = React.useRef(false);
+  
   useEffect(() => {
-    if (isNewClient) {
+    // Solo ejecutar una vez para clientes nuevos
+    if (isNewClient && !initialSetupDone.current) {
       setIsEditing(true);
+      initialSetupDone.current = true;
+      console.log('Forzando modo edición para nuevo cliente');
     }
   }, [isNewClient]);
 
