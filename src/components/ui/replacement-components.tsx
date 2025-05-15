@@ -28,19 +28,16 @@ interface TabsListProps {
   children: React.ReactNode;
 }
 
-interface TabsTriggerProps {
+interface TabsTriggerProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   className?: string;
   value: string;
   children: React.ReactNode;
-  selectedValue?: string;
-  onValueChange?: (value: string) => void;
 }
 
-interface TabsContentProps {
+interface TabsContentProps extends React.HTMLAttributes<HTMLDivElement> {
   className?: string;
   value: string;
   children: React.ReactNode;
-  selectedValue?: string;
 }
 
 // Interfaces de props
@@ -144,6 +141,23 @@ export const MultiSelect: React.FC<MultiSelectProps> = ({
   );
 };
 
+// Crear un contexto para compartir el estado de las pestañas
+type TabsContextValue = {
+  selectedValue: string;
+  onValueChange: (value: string) => void;
+};
+
+const TabsContext = React.createContext<TabsContextValue | undefined>(undefined);
+
+// Hook para utilizar el contexto de las pestañas
+function useTabsContext() {
+  const context = React.useContext(TabsContext);
+  if (!context) {
+    throw new Error("Tabs components must be used within a TabsProvider");
+  }
+  return context;
+}
+
 // Implementación de los componentes de Tabs
 export function Tabs({
   defaultValue,
@@ -164,21 +178,18 @@ export function Tabs({
     }
   };
 
-  // Pass the selected value to children
-  const childrenWithProps = React.Children.map(children, (child) => {
-    if (React.isValidElement(child)) {
-      return React.cloneElement(child as React.ReactElement<any>, {
-        selectedValue: value || selectedTab,
-        onValueChange: handleValueChange,
-      });
-    }
-    return child;
-  });
+  // Crear el valor de contexto
+  const contextValue: TabsContextValue = {
+    selectedValue: value || selectedTab,
+    onValueChange: handleValueChange,
+  };
 
   return (
-    <div className={cn("tabs", className)} {...props}>
-      {childrenWithProps}
-    </div>
+    <TabsContext.Provider value={contextValue}>
+      <div className={cn("tabs", className)} {...props}>
+        {children}
+      </div>
+    </TabsContext.Provider>
   );
 }
 
@@ -200,10 +211,10 @@ export function TabsTrigger({
   className,
   value,
   children,
-  selectedValue,
-  onValueChange,
   ...props
 }: TabsTriggerProps) {
+  // Usar el contexto para acceder al valor seleccionado
+  const { selectedValue, onValueChange } = useTabsContext();
   const isActive = selectedValue === value;
   
   return (
@@ -212,7 +223,7 @@ export function TabsTrigger({
       role="tab"
       aria-selected={isActive}
       data-state={isActive ? "active" : "inactive"}
-      onClick={() => onValueChange && onValueChange(value)}
+      onClick={() => onValueChange(value)}
       className={cn(
         "inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
         isActive && "bg-background text-foreground shadow-sm",
@@ -229,9 +240,10 @@ export function TabsContent({
   className,
   value,
   children,
-  selectedValue,
   ...props
 }: TabsContentProps) {
+  // Usar el contexto para acceder al valor seleccionado
+  const { selectedValue } = useTabsContext();
   const isActive = selectedValue === value;
   
   if (!isActive) return null;
