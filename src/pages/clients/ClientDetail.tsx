@@ -8,6 +8,8 @@ import { getClientById, createClient, updateClient, getClientInteractions, creat
 import { SERVER_CONFIG } from '../../config';
 import { Button } from '../../components/ui/Button';
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '../../components/ui/Card';
+// Importamos useState para manejar las pestañas manualmente
+import { useState } from 'react';
 import { formatDate } from '../../lib/utils';
 
 // Esquema de validación para el formulario de cliente
@@ -50,6 +52,7 @@ const ClientDetail = () => {
   const [showInteractionForm, setShowInteractionForm] = useState(false);
   const [interactionFile, setInteractionFile] = useState<File | null>(null);
   const [fileErrorMessage, setFileErrorMessage] = useState('');
+  const [activeTab, setActiveTab] = useState('contact'); // Estado para controlar las pestañas
   
   // Advertir al usuario sobre cambios no guardados
   useEffect(() => {
@@ -150,109 +153,60 @@ const ClientDetail = () => {
   const createClientMutation = useMutation({
     mutationFn: createClient,
     onSuccess: (data) => {
-      console.log('Cliente creado exitosamente (en el componente):', data);
-      console.log('Invalidando queries...');
-      
-      try {
-        // Primero invalidar la query de clientes
-        queryClient.invalidateQueries({ queryKey: ['clients'] });
-        console.log('Query clients invalidada');
-        
-        // Asegurar que la redirección funcione correctamente
-        console.log('Programando redirección a /clients en 500ms...');
-        setTimeout(() => {
-          console.log('Ejecutando redirección a /clients');
-          navigate('/clients');
-        }, 500);
-      } catch (err) {
-        console.error('Error en la secuencia posterior al guardado:', err);
+      queryClient.invalidateQueries({ queryKey: ['clients'] });
+      // Navegar a la página de detalles del cliente
+      setIsEditing(false);
+      if (data && data.client_id) {
+        navigate(`/clients/${data.client_id}`);
+      } else {
+        navigate('/clients');
       }
+      alert('Cliente creado con éxito');
     },
     onError: (error) => {
-      console.error('Error al crear cliente (en el componente):', error);
-      alert(`Error al crear el cliente: ${error instanceof Error ? error.message : 'Error desconocido'}`);
+      console.error('Error al crear cliente:', error);
+      alert(`Error al crear cliente: ${error instanceof Error ? error.message : 'Error desconocido'}`);
     }
   });
 
   // Mutación para actualizar cliente
   const updateClientMutation = useMutation({
-    mutationFn: (data: {id: string, clientData: Partial<Client>}) => 
-      updateClient(data.id, data.clientData),
+    mutationFn: (data: {id: string, clientData: Partial<Client>}) => updateClient(data.id, data.clientData),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['client', id] });
-      queryClient.invalidateQueries({ queryKey: ['clients'] });
       setIsEditing(false);
+      alert('Cliente actualizado con éxito');
     }
   });
 
   // Mutación para crear interacción
   const createInteractionMutation = useMutation({
-    mutationFn: (data: InteractionFormData) => 
-      createClientInteraction(id || '', { 
-        ...data, 
-        file: interactionFile || undefined 
-      }),
+    mutationFn: (data: InteractionFormData) => {
+      // Crear un objeto compatible con el tipo esperado por createClientInteraction
+      const interactionData = {
+        interaction_type: data.interaction_type,
+        interaction_summary: data.interaction_summary,
+        // Solo incluimos file si no es null
+        ...(interactionFile ? { file: interactionFile } : {})
+      };
+      
+      return createClientInteraction(id || '', interactionData);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['client-interactions', id] });
-      queryClient.invalidateQueries({ queryKey: ['client', id] });
       setShowInteractionForm(false);
       resetInteraction();
       setInteractionFile(null);
+      alert('Interacción registrada con éxito');
     }
   });
 
   // Manejar submit del formulario de cliente
   const onSubmitClient = async (data: ClientFormData) => {
     try {
-      console.log('Enviando datos del formulario:', data);
-      
-      // Prevenir múltiples envíos simultáneos
-      if (createClientMutation.isPending || updateClientMutation.isPending) {
-        console.log('Ya hay una operación en curso, esperando...');
-        return;
-      }
-      
       if (isNewClient) {
-        console.log('Creando nuevo cliente con datos:', data);
-        
-        // Implementar directamente la llamada a la API para depuración
-        try {
-          console.log('URL de la API:', `${SERVER_CONFIG.BASE_URL}/api/clients`);
-          
-          const response = await fetch(`${SERVER_CONFIG.BASE_URL}/api/clients`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(data),
-          });
-          
-          console.log('Respuesta del servidor (status):', response.status);
-          
-          if (!response.ok) {
-            const errorText = await response.text();
-            console.error('Error del servidor:', response.status, errorText);
-            alert(`Error al crear cliente: ${response.status} ${errorText}`);
-            return;
-          }
-          
-          const responseData = await response.json();
-          console.log('Cliente creado exitosamente:', responseData);
-          
-          // Actualizar la caché de React Query
-          queryClient.invalidateQueries({ queryKey: ['clients'] });
-          
-          // Redireccionar después de un pequeño retraso
-          setTimeout(() => {
-            navigate('/clients');
-          }, 500);
-          
-        } catch (apiError) {
-          console.error('Error al llamar a la API:', apiError);
-          alert(`Error al crear cliente: ${apiError instanceof Error ? apiError.message : 'Error desconocido'}`);
-        }
+        createClientMutation.mutate(data);
       } else if (id) {
-        console.log('Actualizando cliente existente:', id, 'con datos:', data);
         updateClientMutation.mutate({ id, clientData: data });
       }
     } catch (error) {
@@ -342,269 +296,299 @@ const ClientDetail = () => {
         </CardHeader>
         <CardContent>
           <form id="clientForm" onSubmit={handleSubmit(onSubmitClient)}>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-muted-foreground mb-1">
-                    Nombre
-                  </label>
-                  <input
-                    type="text"
-                    className={`w-full px-3 py-2 border rounded-md text-sm ${
-                      errors.name ? 'border-destructive' : 'border-input'
-                    }`}
-                    disabled={!isEditing}
-                    {...register('name')}
-                  />
-                  {errors.name && (
-                    <p className="mt-1 text-xs text-destructive">{errors.name.message}</p>
-                  )}
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-muted-foreground mb-1">
-                    Empresa
-                  </label>
-                  <input
-                    type="text"
-                    className={`w-full px-3 py-2 border rounded-md text-sm ${
-                      errors.company ? 'border-destructive' : 'border-input'
-                    }`}
-                    disabled={!isEditing}
-                    {...register('company')}
-                  />
-                  {errors.company && (
-                    <p className="mt-1 text-xs text-destructive">{errors.company.message}</p>
-                  )}
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-muted-foreground mb-1">
-                    Sector
-                  </label>
-                  <select
-                    className={`w-full px-3 py-2 border rounded-md text-sm ${
-                      errors.sector ? 'border-destructive' : 'border-input'
-                    }`}
-                    disabled={!isEditing}
-                    {...register('sector')}
-                  >
-                    <option value="Talleres Mecánicos">Talleres Mecánicos</option>
-                    <option value="Clínicas">Clínicas</option>
-                    <option value="Asesorías">Asesorías</option>
-                    <option value="Restaurantes">Restaurantes</option>
-                    <option value="Otros">Otros</option>
-                  </select>
-                  {errors.sector && (
-                    <p className="mt-1 text-xs text-destructive">{errors.sector.message}</p>
-                  )}
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-muted-foreground mb-1">
-                    Email
-                  </label>
-                  <input
-                    type="email"
-                    className={`w-full px-3 py-2 border rounded-md text-sm ${
-                      errors.email ? 'border-destructive' : 'border-input'
-                    }`}
-                    disabled={!isEditing}
-                    {...register('email')}
-                  />
-                  {errors.email && (
-                    <p className="mt-1 text-xs text-destructive">{errors.email.message}</p>
-                  )}
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-muted-foreground mb-1">
-                    Teléfono
-                  </label>
-                  <input
-                    type="text"
-                    className={`w-full px-3 py-2 border rounded-md text-sm ${
-                      errors.phone ? 'border-destructive' : 'border-input'
-                    }`}
-                    disabled={!isEditing}
-                    {...register('phone')}
-                  />
-                  {errors.phone && (
-                    <p className="mt-1 text-xs text-destructive">{errors.phone.message}</p>
-                  )}
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-muted-foreground mb-1">
-                    ID Fiscal
-                  </label>
-                  <input
-                    type="text"
-                    className={`w-full px-3 py-2 border rounded-md text-sm ${
-                      errors.tax_id ? 'border-destructive' : 'border-input'
-                    }`}
-                    disabled={!isEditing}
-                    {...register('tax_id')}
-                  />
-                  {errors.tax_id && (
-                    <p className="mt-1 text-xs text-destructive">{errors.tax_id.message}</p>
-                  )}
-                </div>
-              </div>
-              
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-muted-foreground mb-1">
-                    Dirección
-                  </label>
-                  <textarea
-                    className={`w-full px-3 py-2 border rounded-md text-sm ${
-                      errors.address ? 'border-destructive' : 'border-input'
-                    }`}
-                    rows={2}
-                    disabled={!isEditing}
-                    {...register('address')}
-                  />
-                  {errors.address && (
-                    <p className="mt-1 text-xs text-destructive">{errors.address.message}</p>
-                  )}
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-muted-foreground mb-1">
-                    Sitio Web
-                  </label>
-                  <input
-                    type="text"
-                    className={`w-full px-3 py-2 border rounded-md text-sm ${
-                      errors.website ? 'border-destructive' : 'border-input'
-                    }`}
-                    disabled={!isEditing}
-                    {...register('website')}
-                  />
-                  {errors.website && (
-                    <p className="mt-1 text-xs text-destructive">{errors.website.message}</p>
-                  )}
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-muted-foreground mb-1">
-                    Contacto Secundario
-                  </label>
-                  <input
-                    type="text"
-                    className={`w-full px-3 py-2 border rounded-md text-sm ${
-                      errors.secondary_contact ? 'border-destructive' : 'border-input'
-                    }`}
-                    disabled={!isEditing}
-                    {...register('secondary_contact')}
-                  />
-                  {errors.secondary_contact && (
-                    <p className="mt-1 text-xs text-destructive">{errors.secondary_contact.message}</p>
-                  )}
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-muted-foreground mb-1">
-                    Email Secundario
-                  </label>
-                  <input
-                    type="email"
-                    className={`w-full px-3 py-2 border rounded-md text-sm ${
-                      errors.secondary_email ? 'border-destructive' : 'border-input'
-                    }`}
-                    disabled={!isEditing}
-                    {...register('secondary_email')}
-                  />
-                  {errors.secondary_email && (
-                    <p className="mt-1 text-xs text-destructive">{errors.secondary_email.message}</p>
-                  )}
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-muted-foreground mb-1">
-                    Estado
-                  </label>
-                  <select
-                    className={`w-full px-3 py-2 border rounded-md text-sm ${
-                      errors.status ? 'border-destructive' : 'border-input'
-                    }`}
-                    disabled={!isEditing}
-                    {...register('status')}
-                  >
-                    <option value="Prospecto">Prospecto</option>
-                    <option value="Cliente Activo">Cliente Activo</option>
-                    <option value="Inactivo">Inactivo</option>
-                    <option value="En Negociación">En Negociación</option>
-                  </select>
-                  {errors.status && (
-                    <p className="mt-1 text-xs text-destructive">{errors.status.message}</p>
-                  )}
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-muted-foreground mb-1">
-                    Notas
-                  </label>
-                  <textarea
-                    className={`w-full px-3 py-2 border rounded-md text-sm ${
-                      errors.contact_notes ? 'border-destructive' : 'border-input'
-                    }`}
-                    rows={2}
-                    disabled={!isEditing}
-                    {...register('contact_notes')}
-                  />
-                  {errors.contact_notes && (
-                    <p className="mt-1 text-xs text-destructive">{errors.contact_notes.message}</p>
-                  )}
-                </div>
-              </div>
-            </div>
-            
-            <div className="flex justify-end mt-6 space-x-2">
-              {isEditing && (
-                <>
-                  <Button 
-                    type="button" 
-                    variant="outline" 
-                    onClick={() => setIsEditing(false)}
-                    disabled={isNewClient}
-                  >
-                    Cancelar
-                  </Button>
-                  <Button 
-                    type="submit"
-                    isLoading={isSubmittingClient}
-                    disabled={createClientMutation.isPending || updateClientMutation.isPending}
-                  >
-                    Guardar
-                  </Button>
-                </>
-              )}
-              
-              {!isEditing && (
-                <Button 
-                  type="button" 
-                  onClick={() => setShowInteractionForm(prev => !prev)}
+            {/* Implementación simplificada de pestañas */}
+            <div className="w-full">
+              <div className="grid w-full grid-cols-2 mb-4 inline-flex h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground">
+                <button 
+                  type="button"
+                  className={`inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-all ${activeTab === 'contact' ? 'bg-background text-foreground shadow-sm' : ''}`}
+                  onClick={() => setActiveTab('contact')}
                 >
-                  {showInteractionForm ? 'Cancelar Interacción' : 'Nueva Interacción'}
-                </Button>
+                  Datos de Contacto
+                </button>
+                <button 
+                  type="button"
+                  className={`inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-all ${activeTab === 'billing' ? 'bg-background text-foreground shadow-sm' : ''}`}
+                  onClick={() => setActiveTab('billing')}
+                >
+                  Datos de Facturación
+                </button>
+              </div>
+              
+              {/* Pestaña de Datos de Contacto */}
+              {activeTab === 'contact' && (
+                <div className="p-1">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-muted-foreground mb-1">
+                        Nombre
+                      </label>
+                      <input
+                        type="text"
+                        className={`w-full px-3 py-2 border rounded-md text-sm ${
+                          errors.name ? 'border-destructive' : 'border-input'
+                        }`}
+                        disabled={!isEditing}
+                        {...register('name')}
+                      />
+                      {errors.name && (
+                        <p className="mt-1 text-xs text-destructive">{errors.name.message}</p>
+                      )}
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-muted-foreground mb-1">
+                        Empresa
+                      </label>
+                      <input
+                        type="text"
+                        className={`w-full px-3 py-2 border rounded-md text-sm ${
+                          errors.company ? 'border-destructive' : 'border-input'
+                        }`}
+                        disabled={!isEditing}
+                        {...register('company')}
+                      />
+                      {errors.company && (
+                        <p className="mt-1 text-xs text-destructive">{errors.company.message}</p>
+                      )}
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-muted-foreground mb-1">
+                        Sector
+                      </label>
+                      <select
+                        className={`w-full px-3 py-2 border rounded-md text-sm ${
+                          errors.sector ? 'border-destructive' : 'border-input'
+                        }`}
+                        disabled={!isEditing}
+                        {...register('sector')}
+                      >
+                        <option value="Talleres Mecánicos">Talleres Mecánicos</option>
+                        <option value="Clínicas">Clínicas</option>
+                        <option value="Asesorías">Asesorías</option>
+                        <option value="Restaurantes">Restaurantes</option>
+                        <option value="Otros">Otros</option>
+                      </select>
+                      {errors.sector && (
+                        <p className="mt-1 text-xs text-destructive">{errors.sector.message}</p>
+                      )}
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-muted-foreground mb-1">
+                        Email
+                      </label>
+                      <input
+                        type="email"
+                        className={`w-full px-3 py-2 border rounded-md text-sm ${
+                          errors.email ? 'border-destructive' : 'border-input'
+                        }`}
+                        disabled={!isEditing}
+                        {...register('email')}
+                      />
+                      {errors.email && (
+                        <p className="mt-1 text-xs text-destructive">{errors.email.message}</p>
+                      )}
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-muted-foreground mb-1">
+                        Teléfono
+                      </label>
+                      <input
+                        type="text"
+                        className={`w-full px-3 py-2 border rounded-md text-sm ${
+                          errors.phone ? 'border-destructive' : 'border-input'
+                        }`}
+                        disabled={!isEditing}
+                        {...register('phone')}
+                      />
+                      {errors.phone && (
+                        <p className="mt-1 text-xs text-destructive">{errors.phone.message}</p>
+                      )}
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-muted-foreground mb-1">
+                        Contacto Secundario
+                      </label>
+                      <input
+                        type="text"
+                        className={`w-full px-3 py-2 border rounded-md text-sm ${
+                          errors.secondary_contact ? 'border-destructive' : 'border-input'
+                        }`}
+                        disabled={!isEditing}
+                        {...register('secondary_contact')}
+                      />
+                      {errors.secondary_contact && (
+                        <p className="mt-1 text-xs text-destructive">{errors.secondary_contact.message}</p>
+                      )}
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-muted-foreground mb-1">
+                        Email Secundario
+                      </label>
+                      <input
+                        type="email"
+                        className={`w-full px-3 py-2 border rounded-md text-sm ${
+                          errors.secondary_email ? 'border-destructive' : 'border-input'
+                        }`}
+                        disabled={!isEditing}
+                        {...register('secondary_email')}
+                      />
+                      {errors.secondary_email && (
+                        <p className="mt-1 text-xs text-destructive">{errors.secondary_email.message}</p>
+                      )}
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-muted-foreground mb-1">
+                        Estado
+                      </label>
+                      <select
+                        className={`w-full px-3 py-2 border rounded-md text-sm ${
+                          errors.status ? 'border-destructive' : 'border-input'
+                        }`}
+                        disabled={!isEditing}
+                        {...register('status')}
+                      >
+                        <option value="Prospecto">Prospecto</option>
+                        <option value="Cliente Activo">Cliente Activo</option>
+                        <option value="Inactivo">Inactivo</option>
+                        <option value="En Negociación">En Negociación</option>
+                      </select>
+                      {errors.status && (
+                        <p className="mt-1 text-xs text-destructive">{errors.status.message}</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                </div>
               )}
+              
+              {/* Pestaña de Datos de Facturación */}
+              {activeTab === 'billing' && (
+                <div className="p-1">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-muted-foreground mb-1">
+                        ID Fiscal
+                      </label>
+                      <input
+                        type="text"
+                        className={`w-full px-3 py-2 border rounded-md text-sm ${
+                          errors.tax_id ? 'border-destructive' : 'border-input'
+                        }`}
+                        disabled={!isEditing}
+                        {...register('tax_id')}
+                      />
+                      {errors.tax_id && (
+                        <p className="mt-1 text-xs text-destructive">{errors.tax_id.message}</p>
+                      )}
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-muted-foreground mb-1">
+                        Dirección
+                      </label>
+                      <input
+                        type="text"
+                        className={`w-full px-3 py-2 border rounded-md text-sm ${
+                          errors.address ? 'border-destructive' : 'border-input'
+                        }`}
+                        disabled={!isEditing}
+                        {...register('address')}
+                      />
+                      {errors.address && (
+                        <p className="mt-1 text-xs text-destructive">{errors.address.message}</p>
+                      )}
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-muted-foreground mb-1">
+                        Sitio Web
+                      </label>
+                      <input
+                        type="url"
+                        className={`w-full px-3 py-2 border rounded-md text-sm ${
+                          errors.website ? 'border-destructive' : 'border-input'
+                        }`}
+                        disabled={!isEditing}
+                        {...register('website')}
+                      />
+                      {errors.website && (
+                        <p className="mt-1 text-xs text-destructive">{errors.website.message}</p>
+                      )}
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-muted-foreground mb-1">
+                        Notas de Contacto
+                      </label>
+                      <textarea
+                        className={`w-full px-3 py-2 border rounded-md text-sm ${
+                          errors.contact_notes ? 'border-destructive' : 'border-input'
+                        }`}
+                        rows={3}
+                        disabled={!isEditing}
+                        {...register('contact_notes')}
+                      ></textarea>
+                      {errors.contact_notes && (
+                        <p className="mt-1 text-xs text-destructive">{errors.contact_notes.message}</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end mt-6 space-x-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => navigate('/clients')}
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="submit"
+                disabled={isSubmittingClient || createClientMutation.isPending || updateClientMutation.isPending}
+              >
+                {(isSubmittingClient || createClientMutation.isPending || updateClientMutation.isPending) ? 'Guardando...' : 'Guardar Cliente'}
+              </Button>
             </div>
           </form>
         </CardContent>
       </Card>
-      
-      {/* Interacciones - Solo mostrar para clientes existentes */}
+
+      {/* Sección de Interacciones - Solo mostrar para clientes existentes */}
       {!isNewClient && (
-        <Card className="max-w-3xl mx-auto">
-          <CardHeader className="pb-2">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle>Interacciones</CardTitle>
+            {!showInteractionForm && (
+              <Button 
+                type="button" 
+                variant="outline" 
+                onClick={() => setShowInteractionForm(true)}
+              >
+                Agregar Interacción
+              </Button>
+            )}
           </CardHeader>
           <CardContent>
-            {/* Formulario de interacción */}
+            {/* Formulario para agregar interacción */}
             {showInteractionForm && (
-              <form onSubmit={handleSubmitInteraction(onSubmitInteraction)} className="border-b pb-6 mb-6">
+              <form onSubmit={handleSubmitInteraction(onSubmitInteraction)} className="mb-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-muted-foreground mb-1">
@@ -652,7 +636,7 @@ const ClientDetail = () => {
                       }`}
                       rows={3}
                       {...registerInteraction('interaction_summary')}
-                    />
+                    ></textarea>
                     {interactionErrors.interaction_summary && (
                       <p className="mt-1 text-xs text-destructive">
                         {interactionErrors.interaction_summary.message}
@@ -664,9 +648,9 @@ const ClientDetail = () => {
                 <div className="flex justify-end mt-4">
                   <Button 
                     type="submit"
-                    isLoading={isSubmittingInteraction || createInteractionMutation.isPending}
+                    disabled={isSubmittingInteraction || createInteractionMutation.isPending}
                   >
-                    Guardar Interacción
+                    {(isSubmittingInteraction || createInteractionMutation.isPending) ? 'Guardando...' : 'Guardar Interacción'}
                   </Button>
                 </div>
               </form>
