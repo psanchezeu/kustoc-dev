@@ -9,6 +9,8 @@ const createComponentAlias = () => {
   // Definimos los archivos a procesar
   const filesToProcess = [
     'src/pages/projects/ProjectDetail.tsx',
+    'src/pages/clients/ClientDetailNew.tsx',
+    'src/pages/clients/ClientDetail.tsx'
   ];
   
   // Patrones de importación a reemplazar
@@ -20,6 +22,10 @@ const createComponentAlias = () => {
     {
       from: "import { MultiSelect, MultiSelectOption } from '../../components/ui/MultiSelect';",
       to: "import { MultiSelect, MultiSelectOption } from '../../components/ui/replacement-components';"
+    },
+    {
+      from: "import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/Tabs';",
+      to: "import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/replacement-components';"
     }
   ];
   
