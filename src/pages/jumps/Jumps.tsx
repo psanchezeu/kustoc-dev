@@ -1,103 +1,38 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '../../components/ui/Table';
 import { Jump } from '../../types';
+import { getJumps } from '../../api/jumpsApi';
 
 /**
  * Página de listado de Jumps (prototipos de aplicaciones)
  */
 const Jumps = () => {
-  const [jumps, setJumps] = useState<Jump[]>([]);
-  const [filteredJumps, setFilteredJumps] = useState<Jump[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    // En una implementación real, llamaríamos a la API
-    const mockJumps: Jump[] = [
-      {
-        jump_id: 'JMP001',
-        client_id: 'CLI001',
-        name: 'E-Commerce Básico',
-        description: 'Tienda online con catálogo de productos y carrito de compra',
-        status: 'completed',
-        url: 'https://jump-ecommerce.kustoc.com',
-        github_repo: 'https://github.com/kustoc/jump-ecommerce',
-        created_at: '2023-01-15T10:00:00Z',
-        updated_at: '2023-02-10T15:30:00Z',
-      },
-      {
-        jump_id: 'JMP002',
-        client_id: 'CLI002',
-        name: 'CRM Dental',
-        description: 'Sistema de gestión para clínicas dentales con agenda y expedientes',
-        status: 'in_progress',
-        github_repo: 'https://github.com/kustoc/jump-dental-crm',
-        created_at: '2023-03-05T09:15:00Z',
-        updated_at: '2023-04-20T14:45:00Z',
-      },
-      {
-        jump_id: 'JMP003',
-        client_id: 'CLI003',
-        name: 'Gestor de Inventario',
-        description: 'Aplicación para gestión de inventario y stock',
-        status: 'planning',
-        created_at: '2023-05-18T11:30:00Z',
-        updated_at: '2023-05-18T11:30:00Z',
-      },
-      {
-        jump_id: 'JMP004',
-        client_id: 'CLI001',
-        name: 'Blog Corporativo',
-        description: 'Blog para publicación de noticias y artículos',
-        status: 'review',
-        url: 'https://jump-blog.kustoc.com',
-        github_repo: 'https://github.com/kustoc/jump-corporate-blog',
-        created_at: '2023-06-10T16:20:00Z',
-        updated_at: '2023-07-05T09:00:00Z',
-      },
-      {
-        jump_id: 'JMP005',
-        client_id: 'CLI004',
-        name: 'Panel Administrativo',
-        description: 'Dashboard para gestión de usuarios y contenidos',
-        status: 'archived',
-        url: 'https://jump-admin.kustoc.com',
-        github_repo: 'https://github.com/kustoc/jump-admin-panel',
-        created_at: '2022-11-30T13:45:00Z',
-        updated_at: '2023-01-02T10:15:00Z',
-      },
-    ];
-    
-    setJumps(mockJumps);
-    setFilteredJumps(mockJumps);
-    setIsLoading(false);
-  }, []);
+  // Obtener jumps usando React Query
+  const { data: jumps = [], isLoading, error } = useQuery({
+    queryKey: ['jumps'],
+    queryFn: getJumps
+  });
 
-  useEffect(() => {
-    // Aplicar filtros
-    let result = jumps;
-    
+  // Aplicar filtros localmente
+  const filteredJumps = jumps.filter(jump => {
     // Filtrar por término de búsqueda
-    if (searchTerm) {
-      result = result.filter(
-        (jump) => 
-          jump.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          jump.description.toLowerCase().includes(searchTerm.toLowerCase())
-      );
-    }
+    const matchesSearch = !searchTerm || 
+      jump.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      jump.description?.toLowerCase().includes(searchTerm.toLowerCase());
     
     // Filtrar por estado
-    if (statusFilter !== 'all') {
-      result = result.filter((jump) => jump.status === statusFilter);
-    }
+    const matchesStatus = statusFilter === 'all' || jump.status === statusFilter;
     
-    setFilteredJumps(result);
-  }, [jumps, searchTerm, statusFilter]);
+    return matchesSearch && matchesStatus;
+  });
 
   const getStatusBadgeClass = (status: string) => {
     switch (status) {

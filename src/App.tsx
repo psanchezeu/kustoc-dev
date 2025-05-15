@@ -11,7 +11,7 @@ import Dashboard from './pages/Dashboard';
 import Clients from './pages/clients/Clients';
 import ClientDetailNew from './pages/clients/ClientDetailNew';
 import Jumps from './pages/jumps/Jumps';
-import JumpDetail from './pages/jumps/JumpDetail';
+import JumpDetailNew from './pages/jumps/JumpDetailNew';
 import Invoices from './pages/invoices/Invoices';
 import InvoiceDetail from './pages/invoices/InvoiceDetail';
 import ApiKeys from './pages/api-keys/ApiKeys';
@@ -47,8 +47,8 @@ const App = () => {
             {/* Jumps */}
             <Route path="jumps">
               <Route index element={<Jumps />} />
-              <Route path="new" element={<JumpDetail />} />
-              <Route path=":id" element={<JumpDetail />} />
+              <Route path="new" element={<JumpDetailNew />} />
+              <Route path=":id" element={<JumpDetailNew />} />
             </Route>
             
             {/* Facturas */}

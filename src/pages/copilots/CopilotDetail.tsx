@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
@@ -16,7 +17,8 @@ const copilotSchema = z.object({
   email: z.string().email({ message: 'El email debe ser válido' }),
   bio: z.string().optional(),
   specialty: z.string().min(1, { message: 'Debes ingresar al menos una especialidad' }),
-  status: z.enum(['available', 'busy', 'inactive']),
+  availability: z.enum(['available', 'busy', 'inactive']),
+  role: z.string().min(1, { message: 'El rol es obligatorio' }),
   hourly_rate: z.string().refine(
     (value) => !isNaN(Number(value)) && Number(value) > 0,
     { message: 'La tarifa debe ser un número positivo' }
@@ -31,8 +33,11 @@ type CopilotFormData = z.infer<typeof copilotSchema>;
 const CopilotDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [isLoading, setIsLoading] = useState(false);
-  const isEditing = id !== 'new';
+  const [error, setError] = useState<string | null>(null);
+  // Verificar si estamos en modo edición (el ID existe y no es 'new')
+  const isEditing = id !== undefined && id !== 'new';
 
   // Configuración de React Hook Form con validación Zod
   const {
@@ -47,7 +52,8 @@ const CopilotDetail = () => {
       email: '',
       bio: '',
       specialty: '',
-      status: 'available',
+      availability: 'available',
+      role: 'developer',
       hourly_rate: '',
     },
   });
@@ -56,36 +62,52 @@ const CopilotDetail = () => {
     // Si estamos editando, cargar los datos del copiloto existente
     if (isEditing) {
       setIsLoading(true);
-      // En una implementación real, llamaríamos a la API
-      // Para el MVP, simulamos la carga de datos
-      setTimeout(() => {
-        const mockCopilot: Copilot = {
-          copilot_id: id!,
-          name: 'Ana López',
-          email: 'ana.lopez@kustoc.com',
-          bio: 'Especialista en desarrollo frontend con React y diseño UX/UI',
-          specialty: ['frontend', 'ux/ui', 'react'],
-          status: 'available',
-          hourly_rate: 60,
-          created_at: '2023-01-15T10:30:00Z',
-        };
-
-        reset({
-          name: mockCopilot.name,
-          email: mockCopilot.email,
-          bio: mockCopilot.bio || '',
-          specialty: mockCopilot.specialty.join(', '),
-          status: mockCopilot.status,
-          hourly_rate: mockCopilot.hourly_rate.toString(),
+      setError(null);
+      
+      fetch(`http://localhost:3001/api/copilots/${id}`)
+        .then(response => {
+          if (!response.ok) {
+            throw new Error('Error al cargar el copiloto');
+          }
+          return response.json();
+        })
+        .then(data => {
+          // Parsear el specialty si viene como string JSON
+          let specialtyArray = [];
+          try {
+            if (typeof data.specialty === 'string') {
+              specialtyArray = JSON.parse(data.specialty);
+            } else if (Array.isArray(data.specialty)) {
+              specialtyArray = data.specialty;
+            }
+          } catch (e) {
+            console.error('Error al parsear specialty:', e);
+            specialtyArray = [];
+          }
+          
+          reset({
+            name: data.name,
+            email: data.email,
+            bio: data.bio || '',
+            specialty: Array.isArray(specialtyArray) ? specialtyArray.join(', ') : '',
+            availability: data.availability || 'available',
+            role: data.role || 'developer',
+            hourly_rate: data.hourly_rate?.toString() || '0',
+          });
+        })
+        .catch(err => {
+          console.error('Error al cargar datos del copiloto:', err);
+          setError(err.message || 'Error al cargar los datos del copiloto');
+        })
+        .finally(() => {
+          setIsLoading(false);
         });
-        
-        setIsLoading(false);
-      }, 800);
     }
   }, [id, isEditing, reset]);
 
   const onSubmit = async (data: CopilotFormData) => {
     setIsLoading(true);
+    setError(null);
     
     try {
       // Procesar los datos antes de enviarlos
@@ -93,18 +115,51 @@ const CopilotDetail = () => {
         ...data,
         specialty: data.specialty.split(',').map(s => s.trim()).filter(Boolean),
         hourly_rate: Number(data.hourly_rate),
+        // Asegurar que availability tenga un valor válido
+        availability: data.availability || 'available'
       };
       
-      // En una implementación real, enviaríamos los datos a la API
-      // Para el MVP, simulamos una respuesta exitosa después de un breve retraso
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Enviar los datos a la API usando el endpoint correcto
+      const url = isEditing ? `http://localhost:3001/api/copilots/${id}` : 'http://localhost:3001/api/copilots';
+      const method = isEditing ? 'PUT' : 'POST';
       
-      console.log('Datos del formulario:', processedData);
+      console.log('Enviando datos al servidor:', processedData);
+      console.log('URL:', url, 'Método:', method);
+      
+      const response = await fetch(url, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(processedData),
+      });
+      
+      // Imprimir la respuesta para depuración
+      console.log('Status:', response.status, response.statusText);
+      // Intentar leer la respuesta como texto primero para depuración
+      const responseText = await response.text();
+      console.log('Respuesta del servidor:', responseText);
+      
+      // Si no es OK, construir un objeto de error más descriptivo
+      if (!response.ok) {
+        try {
+          const errorData = JSON.parse(responseText);
+          throw new Error(errorData.error || `Error ${response.status}: ${response.statusText}`);
+        } catch (parseError) {
+          throw new Error(`Error ${response.status}: ${response.statusText}. Respuesta: ${responseText}`);
+        }
+      }
+      
+      // Si llegamos aquí, la respuesta fue exitosa - continuar con la operación
+      
+      // Invalidar consultas para refrescar datos
+      queryClient.invalidateQueries({ queryKey: ['copilots'] });
       
       // Redirigir a la lista de copilotos después de guardar
       navigate('/copilots');
-    } catch (error) {
-      console.error('Error al guardar el copiloto:', error);
+    } catch (err) {
+      console.error('Error al guardar el copiloto:', err);
+      setError(err instanceof Error ? err.message : 'Error desconocido al guardar el copiloto');
     } finally {
       setIsLoading(false);
     }
@@ -121,9 +176,17 @@ const CopilotDetail = () => {
         </Button>
       </div>
       
+      {error && (
+        <div className="bg-destructive/15 text-destructive px-4 py-3 rounded-md mb-4">
+          {error}
+        </div>
+      )}
+      
       <Card>
         <CardHeader>
-          <CardTitle>{isEditing ? 'Detalles del Copiloto' : 'Crear Copiloto'}</CardTitle>
+          <CardTitle>
+            {isEditing ? 'Información del Copiloto' : 'Registrar Nuevo Copiloto'}
+          </CardTitle>
         </CardHeader>
         <CardContent>
           {isLoading && isEditing ? (
@@ -199,19 +262,38 @@ const CopilotDetail = () => {
                 </div>
               </div>
               
-              <div className="space-y-2">
-                <Label htmlFor="status">Estado</Label>
-                <Select 
-                  id="status" 
-                  {...register('status')}
-                >
-                  <SelectOption value="available">Disponible</SelectOption>
-                  <SelectOption value="busy">Ocupado</SelectOption>
-                  <SelectOption value="inactive">Inactivo</SelectOption>
-                </Select>
-                {errors.status && (
-                  <p className="text-sm text-red-500">{errors.status.message}</p>
-                )}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <Label htmlFor="availability">Estado</Label>
+                  <Select 
+                    id="availability" 
+                    {...register('availability')}
+                  >
+                    <SelectOption value="available">Disponible</SelectOption>
+                    <SelectOption value="busy">Ocupado</SelectOption>
+                    <SelectOption value="inactive">Inactivo</SelectOption>
+                  </Select>
+                  {errors.availability && (
+                    <p className="text-sm text-red-500">{errors.availability.message}</p>
+                  )}
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="role">Rol</Label>
+                  <Select
+                    id="role"
+                    {...register('role')}
+                  >
+                    <SelectOption value="developer">Desarrollador</SelectOption>
+                    <SelectOption value="designer">Diseñador</SelectOption>
+                    <SelectOption value="project-manager">Project Manager</SelectOption>
+                    <SelectOption value="analyst">Analista</SelectOption>
+                    <SelectOption value="qa">QA Tester</SelectOption>
+                  </Select>
+                  {errors.role && (
+                    <p className="text-sm text-red-500">{errors.role.message}</p>
+                  )}
+                </div>
               </div>
             </form>
           )}

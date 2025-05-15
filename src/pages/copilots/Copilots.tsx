@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
@@ -11,97 +12,65 @@ import { formatCurrency } from '../../lib/utils';
  * Página de listado de Copilotos de IA
  */
 const Copilots = () => {
-  const [copilots, setCopilots] = useState<Copilot[]>([]);
   const [filteredCopilots, setFilteredCopilots] = useState<Copilot[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [isLoading, setIsLoading] = useState(true);
+  const [availabilityFilter, setAvailabilityFilter] = useState<string>('all');
+  const [error, setError] = useState<string | null>(null);
+
+  // Consulta para cargar los copilotos desde la API
+  const { data: copilots, isLoading } = useQuery({
+    queryKey: ['copilots'],
+    queryFn: async () => {
+      try {
+        const response = await fetch('http://localhost:3001/api/copilots');
+        if (!response.ok) {
+          throw new Error(`Error al cargar los copilotos: ${response.statusText}`);
+        }
+        const data = await response.json();
+        console.log('Datos de copilotos cargados:', data);
+        return data as Copilot[];
+      } catch (err) {
+        console.error('Error al cargar los copilotos:', err);
+        setError(err instanceof Error ? err.message : 'Error al cargar los copilotos');
+        return [] as Copilot[];
+      }
+    },
+    staleTime: 5 * 60 * 1000, // 5 minutos
+    refetchOnWindowFocus: false
+  });
 
   useEffect(() => {
-    // En una implementación real, llamaríamos a la API
-    const mockCopilots: Copilot[] = [
-      {
-        copilot_id: 'COP001',
-        name: 'Ana López',
-        email: 'ana.lopez@kustoc.com',
-        bio: 'Especialista en desarrollo frontend con React y diseño UX/UI',
-        specialty: ['frontend', 'ux/ui', 'react'],
-        status: 'available',
-        hourly_rate: 60,
-        created_at: '2023-01-15T10:30:00Z',
-      },
-      {
-        copilot_id: 'COP002',
-        name: 'Carlos Martínez',
-        email: 'carlos.martinez@kustoc.com',
-        bio: 'Experto en desarrollo backend y arquitectura de sistemas',
-        specialty: ['backend', 'nodejs', 'databases'],
-        status: 'busy',
-        hourly_rate: 75,
-        created_at: '2023-02-20T14:15:00Z',
-      },
-      {
-        copilot_id: 'COP003',
-        name: 'Laura Sánchez',
-        email: 'laura.sanchez@kustoc.com',
-        bio: 'Especialista en automatización de pruebas y DevOps',
-        specialty: ['testing', 'devops', 'ci/cd'],
-        status: 'available',
-        hourly_rate: 65,
-        created_at: '2023-03-10T09:45:00Z',
-      },
-      {
-        copilot_id: 'COP004',
-        name: 'Miguel Fernández',
-        email: 'miguel.fernandez@kustoc.com',
-        bio: 'Desarrollador full-stack con experiencia en proyectos de e-commerce',
-        specialty: ['fullstack', 'ecommerce', 'react'],
-        status: 'inactive',
-        hourly_rate: 70,
-        created_at: '2023-04-05T16:00:00Z',
-      },
-      {
-        copilot_id: 'COP005',
-        name: 'Elena Gómez',
-        email: 'elena.gomez@kustoc.com',
-        bio: 'Especialista en desarrollo móvil para iOS y Android',
-        specialty: ['mobile', 'ios', 'android'],
-        status: 'available',
-        hourly_rate: 80,
-        created_at: '2023-05-12T11:30:00Z',
-      },
-    ];
+    if (!copilots) {
+      setFilteredCopilots([]);
+      return;
+    }
     
-    setCopilots(mockCopilots);
-    setFilteredCopilots(mockCopilots);
-    setIsLoading(false);
-  }, []);
-
-  useEffect(() => {
     // Aplicar filtros
-    let result = copilots;
+    let result = [...copilots];
     
     // Filtrar por término de búsqueda
     if (searchTerm) {
       const searchTermLower = searchTerm.toLowerCase();
       result = result.filter(
-        (copilot) => 
+        (copilot: Copilot) => 
           copilot.name.toLowerCase().includes(searchTermLower) ||
           copilot.email.toLowerCase().includes(searchTermLower) ||
-          copilot.specialty.some(spec => spec.toLowerCase().includes(searchTermLower))
+          (Array.isArray(copilot.specialty) && copilot.specialty.some((spec: string) => 
+            spec.toLowerCase().includes(searchTermLower)
+          ))
       );
     }
     
     // Filtrar por estado
-    if (statusFilter !== 'all') {
-      result = result.filter((copilot) => copilot.status === statusFilter);
+    if (availabilityFilter !== 'all') {
+      result = result.filter((copilot: Copilot) => copilot.availability === availabilityFilter);
     }
     
     setFilteredCopilots(result);
-  }, [copilots, searchTerm, statusFilter]);
+  }, [copilots, searchTerm, availabilityFilter]);
 
-  const getStatusBadgeClass = (status: string) => {
-    switch (status) {
+  const getAvailabilityBadgeClass = (availability: string) => {
+    switch (availability) {
       case 'available':
         return 'bg-green-100 text-green-800';
       case 'busy':
@@ -113,8 +82,8 @@ const Copilots = () => {
     }
   };
 
-  const getStatusLabel = (status: string) => {
-    switch (status) {
+  const getAvailabilityLabel = (availability: string) => {
+    switch (availability) {
       case 'available':
         return 'Disponible';
       case 'busy':
@@ -122,7 +91,7 @@ const Copilots = () => {
       case 'inactive':
         return 'Inactivo';
       default:
-        return status;
+        return availability;
     }
   };
 
@@ -151,8 +120,8 @@ const Copilots = () => {
             <div>
               <select
                 className="h-10 rounded-md border border-input bg-background px-3 py-2"
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
+                value={availabilityFilter}
+                onChange={(e) => setAvailabilityFilter(e.target.value)}
               >
                 <option value="all">Todos los estados</option>
                 <option value="available">Disponible</option>
@@ -187,20 +156,37 @@ const Copilots = () => {
                     <TableCell>{copilot.email}</TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1">
-                        {copilot.specialty.map((spec, index) => (
-                          <span 
-                            key={index}
-                            className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800"
-                          >
-                            {spec}
-                          </span>
-                        ))}
+                        {(() => {
+                          let specialtyArray: string[] = [];
+                          try {
+                            // Intentar parsear si es una cadena JSON
+                            if (typeof copilot.specialty === 'string') {
+                              specialtyArray = JSON.parse(copilot.specialty);
+                            } 
+                            // Si ya es un array, usarlo directamente
+                            else if (Array.isArray(copilot.specialty)) {
+                              specialtyArray = copilot.specialty;
+                            }
+                          } catch (e) {
+                            console.error('Error al parsear specialty:', e);
+                            specialtyArray = [];
+                          }
+                          
+                          return specialtyArray.map((spec, index) => (
+                            <span 
+                              key={index}
+                              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800"
+                            >
+                              {spec}
+                            </span>
+                          ))
+                        })()}
                       </div>
                     </TableCell>
                     <TableCell>{formatCurrency(copilot.hourly_rate, 'EUR')}</TableCell>
                     <TableCell>
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusBadgeClass(copilot.status)}`}>
-                        {getStatusLabel(copilot.status)}
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getAvailabilityBadgeClass(copilot.availability)}`}>
+                        {getAvailabilityLabel(copilot.availability)}
                       </span>
                     </TableCell>
                     <TableCell className="text-right">

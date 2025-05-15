@@ -96,7 +96,8 @@ export interface Copilot {
   email: string;
   bio?: string;
   specialty: string[];
-  status: 'available' | 'busy' | 'inactive';
+  availability: 'available' | 'busy' | 'inactive';
+  role: string;
   hourly_rate: number;
   created_at: string;
 }

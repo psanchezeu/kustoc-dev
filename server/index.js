@@ -44,8 +44,85 @@ const db = new sqlite3.Database(dbPath, (err) => {
   } else {
     console.log('Conexión establecida con la base de datos SQLite');
     setupDatabase();
+    migrateDatabase();
   }
 });
+
+// Función para realizar migraciones de la base de datos
+function migrateDatabase() {
+  console.log('Iniciando migraciones de la base de datos...');
+  
+  // Comprobar y actualizar la estructura de la tabla copilots si es necesario
+  db.get("PRAGMA table_info(copilots)", [], (err, rows) => {
+    if (err) {
+      console.error('Error al obtener estructura de la tabla copilots:', err.message);
+      return;
+    }
+    
+    // Comprobar si existen los campos nuevos
+    db.all("PRAGMA table_info(copilots)", [], (err, columns) => {
+      if (err) {
+        console.error('Error al obtener columnas de la tabla copilots:', err.message);
+        return;
+      }
+      
+      const columnNames = columns.map(col => col.name);
+      console.log('Columnas actuales en tabla copilots:', columnNames);
+      
+      // Actualizar la tabla si faltan columnas
+      const missingColumns = [];
+      
+      if (!columnNames.includes('bio')) {
+        missingColumns.push('ADD COLUMN bio TEXT');
+      }
+      
+      if (!columnNames.includes('specialty')) {
+        missingColumns.push('ADD COLUMN specialty TEXT');
+      }
+      
+      if (!columnNames.includes('status') && !columnNames.includes('availability')) {
+        missingColumns.push('ADD COLUMN status TEXT DEFAULT \'available\' NOT NULL');
+      }
+      
+      if (!columnNames.includes('hourly_rate')) {
+        missingColumns.push('ADD COLUMN hourly_rate REAL DEFAULT 0 NOT NULL');
+      }
+      
+      if (!columnNames.includes('created_at')) {
+        missingColumns.push(`ADD COLUMN created_at TEXT DEFAULT '${new Date().toISOString()}' NOT NULL`);
+      }
+      
+      if (missingColumns.length > 0) {
+        console.log('Actualizando estructura de la tabla copilots...');
+        
+        // Ejecutar las alteraciones una por una
+        const runNextAlteration = (index) => {
+          if (index >= missingColumns.length) {
+            console.log('Tabla copilots actualizada correctamente');
+            return;
+          }
+          
+          const alterSql = `ALTER TABLE copilots ${missingColumns[index]}`;
+          console.log('Ejecutando:', alterSql);
+          
+          db.run(alterSql, (alterErr) => {
+            if (alterErr) {
+              console.error(`Error al ejecutar ${alterSql}:`, alterErr.message);
+            } else {
+              console.log(`Columna añadida: ${missingColumns[index]}`);
+            }
+            
+            runNextAlteration(index + 1);
+          });
+        };
+        
+        runNextAlteration(0);
+      } else {
+        console.log('La tabla copilots ya tiene la estructura correcta');
+      }
+    });
+  });
+}
 
 // Configurar la base de datos con todas las tablas necesarias
 function setupDatabase() {
@@ -85,24 +162,20 @@ function setupDatabase() {
       jump_id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       description TEXT,
-      sector TEXT NOT NULL,
-      base_price REAL NOT NULL,
+      sector TEXT,
+      base_price REAL,
       features TEXT,
       technical_requirements TEXT,
       scalable_modules TEXT,
       images TEXT,
       demo_video TEXT,
       use_cases TEXT,
-      status TEXT NOT NULL
-    )`);
-
-    // Tabla de Relación Jump-Cliente
-    db.run(`CREATE TABLE IF NOT EXISTS jump_clients (
-      jump_id TEXT NOT NULL,
-      client_id TEXT NOT NULL,
-      PRIMARY KEY (jump_id, client_id),
-      FOREIGN KEY (jump_id) REFERENCES jumps (jump_id),
-      FOREIGN KEY (client_id) REFERENCES clients (client_id)
+      status TEXT NOT NULL,
+      client_id TEXT,
+      url TEXT,
+      github_repo TEXT,
+      created_at TEXT,
+      updated_at TEXT
     )`);
 
     // Tabla de Facturas
@@ -179,10 +252,11 @@ function setupDatabase() {
       copilot_id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       email TEXT NOT NULL UNIQUE,
-      role TEXT NOT NULL,
-      skills TEXT,
-      availability INTEGER NOT NULL,
-      total_hours_worked REAL DEFAULT 0
+      bio TEXT,
+      specialty TEXT,
+      status TEXT NOT NULL,
+      hourly_rate REAL NOT NULL,
+      created_at TEXT NOT NULL
     )`);
 
     // Tabla de Proyectos
@@ -498,90 +572,194 @@ app.get('/api/jumps', (req, res) => {
 });
 
 app.get('/api/jumps/:id', (req, res) => {
+  console.log('GET /api/jumps/:id - ID:', req.params.id);
+  
   db.get('SELECT * FROM jumps WHERE jump_id = ?', [req.params.id], (err, jump) => {
     if (err) {
+      console.error('Error al obtener jump:', err.message);
       res.status(500).json({ error: err.message });
       return;
     }
     if (!jump) {
+      console.log('Jump no encontrado:', req.params.id);
       res.status(404).json({ error: 'Jump no encontrado' });
       return;
     }
     
-    // Obtener los clientes asociados al Jump
-    db.all(`
-      SELECT c.client_id, c.name, c.company
-      FROM clients c
-      JOIN jump_clients jc ON c.client_id = jc.client_id
-      WHERE jc.jump_id = ?
-    `, [req.params.id], (err, clients) => {
-      if (err) {
-        res.status(500).json({ error: err.message });
+    console.log('Jump encontrado:', jump);
+    
+    // Crear objeto de respuesta con manejo seguro de campos
+    const result = { ...jump };
+    
+    // Manejar de forma segura los campos JSON
+    try {
+      if (jump.features && typeof jump.features === 'string') {
+        result.features = JSON.parse(jump.features);
+      } else {
+        result.features = [];
+      }
+      
+      if (jump.scalable_modules && typeof jump.scalable_modules === 'string') {
+        result.scalable_modules = JSON.parse(jump.scalable_modules);
+      } else {
+        result.scalable_modules = [];
+      }
+      
+      if (jump.images && typeof jump.images === 'string') {
+        result.images = JSON.parse(jump.images);
+      } else {
+        result.images = [];
+      }
+    } catch (jsonError) {
+      console.error('Error al parsear JSON:', jsonError);
+      // Continuar con valores por defecto si hay error de parsing
+    }
+    
+    // Intentar obtener clientes asociados solo si la tabla existe
+    db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='jump_clients'", [], (tableErr, tableExists) => {
+      if (tableErr || !tableExists) {
+        // No hay tabla de relación, devolver solo el jump
+        console.log('No se encontró la tabla jump_clients o hubo un error');
+        res.json(result);
         return;
       }
       
-      // Parsear arrays almacenados como JSON strings
-      const result = {
-        ...jump,
-        features: jump.features ? JSON.parse(jump.features) : [],
-        scalable_modules: jump.scalable_modules ? JSON.parse(jump.scalable_modules) : [],
-        images: jump.images ? JSON.parse(jump.images) : [],
-        clients: clients
-      };
-      
-      res.json(result);
+      // Obtener los clientes asociados al Jump
+      db.all(`
+        SELECT c.client_id, c.name, c.company
+        FROM clients c
+        JOIN jump_clients jc ON c.client_id = jc.client_id
+        WHERE jc.jump_id = ?
+      `, [req.params.id], (clientErr, clients) => {
+        if (clientErr) {
+          console.error('Error al obtener clientes asociados:', clientErr.message);
+          // Si hay error, continuar sin clientes
+          res.json(result);
+          return;
+        }
+        
+        // Añadir clientes al resultado
+        result.clients = clients || [];
+        res.json(result);
+      });
     });
   });
 });
 
-app.post('/api/jumps', upload.array('images', 5), (req, res) => {
-  const {
-    name, description, sector, base_price, technical_requirements,
-    demo_video, use_cases, status, features, scalable_modules
-  } = req.body;
+app.post('/api/jumps', (req, res) => {
+  console.log('POST /api/jumps - Cuerpo de la solicitud:', req.body);
+  
+  const { name, description, status, client_id, url, github_repo } = req.body;
 
-  if (!name || !sector || !base_price || !status) {
-    res.status(400).json({ error: 'Faltan campos obligatorios' });
+  console.log('Campos recibidos simplificados:', {
+    name, description, status, client_id, url, github_repo
+  });
+
+  if (!name) {
+    console.log('Error: Nombre es obligatorio');
+    res.status(400).json({ error: 'El nombre es obligatorio' });
+    return;
+  }
+  
+  // Generación de ID simplificada para pruebas
+  const jump_id = 'JMP' + Date.now();
+  
+  // Inserción simplificada para solucionar problemas de guardado
+  const query = `
+    INSERT INTO jumps (jump_id, name, description, status, client_id, url, github_repo) 
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `;
+  
+  console.log('Ejecutando consulta:', query);
+  console.log('Con parámetros:', [jump_id, name, description, status || 'planning', client_id || null, url || null, github_repo || null]);
+  
+  db.run(query, [
+    jump_id,
+    name,
+    description || '',
+    status || 'planning',
+    client_id || null,
+    url || null,
+    github_repo || null
+  ], function(err) {
+    if (err) {
+      console.error('Error al insertar jump:', err.message);
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    
+    console.log('Jump creado exitosamente con ID:', jump_id);
+    
+    res.status(201).json({
+      jump_id,
+      name,
+      description: description || '',
+      status: status || 'planning',
+      client_id: client_id || null,
+      url: url || null,
+      github_repo: github_repo || null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    });
+  });
+});
+
+// Actualizar un jump existente
+app.put('/api/jumps/:id', (req, res) => {
+  console.log('PUT /api/jumps/:id - ID:', req.params.id);
+  console.log('PUT /api/jumps/:id - Cuerpo de la solicitud:', req.body);
+  
+  const { id } = req.params;
+  const { name, description, status, client_id, url, github_repo } = req.body;
+
+  if (!name) {
+    console.log('Error: Nombre es obligatorio');
+    res.status(400).json({ error: 'El nombre es obligatorio' });
     return;
   }
 
-  // Preparar arrays para guardar como JSON strings
-  const featuresArray = features ? JSON.stringify(Array.isArray(features) ? features : [features]) : JSON.stringify([]);
-  const scalableModulesArray = scalable_modules ? JSON.stringify(Array.isArray(scalable_modules) ? scalable_modules : [scalable_modules]) : JSON.stringify([]);
+  const query = `
+    UPDATE jumps 
+    SET name = ?, description = ?, status = ?, client_id = ?, url = ?, github_repo = ?, updated_at = ?
+    WHERE jump_id = ?
+  `;
   
-  // Guardar nombres de archivos de imágenes
-  const imageFiles = req.files ? req.files.map(file => file.filename) : [];
-  const imagesJson = JSON.stringify(imageFiles);
-
-  generateId('JMP', (jump_id) => {
-    if (!jump_id) {
-      res.status(500).json({ error: 'Error al generar ID de jump' });
+  console.log('Ejecutando consulta UPDATE:', query);
+  console.log('Con parámetros:', [name, description, status, client_id, url, github_repo, new Date().toISOString(), id]);
+  
+  db.run(query, [
+    name,
+    description || '',
+    status || 'planning',
+    client_id || null,
+    url || null,
+    github_repo || null,
+    new Date().toISOString(),
+    id
+  ], function(err) {
+    if (err) {
+      console.error('Error al actualizar jump:', err.message);
+      res.status(500).json({ error: err.message });
       return;
     }
-
-    db.run(`
-      INSERT INTO jumps (
-        jump_id, name, description, sector, base_price, features,
-        technical_requirements, scalable_modules, images, demo_video,
-        use_cases, status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [
-      jump_id, name, description, sector, base_price, featuresArray,
-      technical_requirements, scalableModulesArray, imagesJson, demo_video,
-      use_cases, status
-    ], function(err) {
-      if (err) {
-        res.status(500).json({ error: err.message });
-        return;
-      }
-      res.status(201).json({
-        jump_id, name, description, sector, base_price,
-        features: features ? (Array.isArray(features) ? features : [features]) : [],
-        technical_requirements, 
-        scalable_modules: scalable_modules ? (Array.isArray(scalable_modules) ? scalable_modules : [scalable_modules]) : [],
-        images: imageFiles,
-        demo_video, use_cases, status
-      });
+    
+    if (this.changes === 0) {
+      console.log('Jump no encontrado:', id);
+      res.status(404).json({ error: 'Jump no encontrado' });
+      return;
+    }
+    
+    console.log('Jump actualizado exitosamente:', id);
+    
+    res.json({
+      jump_id: id,
+      name,
+      description: description || '',
+      status: status || 'planning',
+      client_id: client_id || null,
+      url: url || null,
+      github_repo: github_repo || null,
+      updated_at: new Date().toISOString()
     });
   });
 });
@@ -606,6 +784,231 @@ app.post('/api/jumps/:jumpId/clients', (req, res) => {
     }
     res.status(201).json({ jump_id: jumpId, client_id: clientId });
   });
+});
+
+// Obtener los clientes asociados a un Jump
+app.get('/api/jumps/:jumpId/clients', (req, res) => {
+  const { jumpId } = req.params;
+
+  db.all(`
+    SELECT c.client_id, c.name, c.company
+    FROM clients c
+    JOIN jump_clients jc ON c.client_id = jc.client_id
+    WHERE jc.jump_id = ?
+  `, [jumpId], (err, rows) => {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.json(rows);
+  });
+});
+
+// ----- Rutas para Copilotos -----
+
+// Obtener todos los copilotos
+app.get('/api/copilots', (req, res) => {
+  db.all('SELECT * FROM copilots ORDER BY name', [], (err, rows) => {
+    if (err) {
+      console.error('Error al obtener copilotos:', err.message);
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.json(rows);
+  });
+});
+
+// Obtener un copiloto específico
+app.get('/api/copilots/:id', (req, res) => {
+  db.get('SELECT * FROM copilots WHERE copilot_id = ?', [req.params.id], (err, copilot) => {
+    if (err) {
+      console.error('Error al obtener copiloto:', err.message);
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    if (!copilot) {
+      console.log('Copiloto no encontrado:', req.params.id);
+      res.status(404).json({ error: 'Copiloto no encontrado' });
+      return;
+    }
+    res.json(copilot);
+  });
+});
+
+// Crear un nuevo copiloto
+app.post('/api/copilots', (req, res) => {
+  const { name, email, bio, specialty, availability, hourly_rate, role } = req.body;
+
+  // Log para depuración
+  console.log('Datos recibidos en POST /api/copilots:', req.body);
+
+  if (!name || !email || !availability || !hourly_rate) {
+    res.status(400).json({ error: 'Faltan campos obligatorios' });
+    return;
+  }
+  
+  // Si no se proporciona role, usar un valor predeterminado
+  const roleFinal = role || 'developer';
+
+  // Procesamiento de especialidades (convertir a texto JSON)
+  const specialtyJSON = Array.isArray(specialty) ? JSON.stringify(specialty) : JSON.stringify(specialty.split(',').map(s => s.trim()).filter(Boolean));
+  
+  const created_at = new Date().toISOString();
+
+  // Verificar si la tabla tiene las columnas correctas
+  db.all("PRAGMA table_info(copilots)", [], (schemaErr, columns) => {
+    if (schemaErr) {
+      console.error('Error al verificar la estructura de la tabla copilots:', schemaErr.message);
+      return res.status(500).json({ error: schemaErr.message });
+    }
+    
+    const columnNames = columns.map(col => col.name);
+    console.log('Columnas existentes en tabla copilots:', columnNames);
+    
+    // Comprobar si falta la columna status
+    const missingStatus = !columnNames.includes('status');
+    
+    // Si falta la columna status, añadirla
+    if (missingStatus) {
+      const alterSql = `ALTER TABLE copilots ADD COLUMN status TEXT DEFAULT 'available' NOT NULL`;
+      console.log('Ejecutando migración:', alterSql);
+      
+      db.run(alterSql, (alterErr) => {
+        if (alterErr) {
+          console.error('Error al añadir columna status:', alterErr.message);
+          return res.status(500).json({ error: 'Error en la estructura de la tabla: ' + alterErr.message });
+        }
+        
+        console.log('Columna status añadida correctamente');
+        proceedWithInsert();
+      });
+    } else {
+      proceedWithInsert();
+    }
+  });
+  
+  // Función para continuar con la inserción
+  function proceedWithInsert() {
+    // Generar ID para el copiloto
+    generateId('CPL', (copilot_id) => {
+      if (!copilot_id) {
+        res.status(500).json({ error: 'Error al generar ID de copiloto' });
+        return;
+      }
+
+      console.log('Insertando copiloto con ID:', copilot_id);
+      console.log('Datos a insertar:', { copilot_id, name, email, bio: bio || '', specialty: specialtyJSON, availability, hourly_rate, role: roleFinal, created_at });
+
+      db.run(`
+        INSERT INTO copilots (
+          copilot_id, name, email, bio, specialty, availability, hourly_rate, role, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [
+        copilot_id, name, email, bio || '', specialtyJSON, availability, hourly_rate, roleFinal, created_at
+      ], function(err) {
+        if (err) {
+          console.error('Error al insertar copiloto:', err.message);
+          res.status(500).json({ error: err.message });
+          return;
+        }
+        
+        console.log('Copiloto insertado correctamente:', copilot_id);
+        
+        // Devolver objeto completo
+        res.status(201).json({
+          copilot_id, name, email, bio: bio || '', 
+          specialty: JSON.parse(specialtyJSON),
+          availability, hourly_rate, role: roleFinal, created_at
+        });
+      });
+    });
+  }
+});
+
+// Actualizar un copiloto existente
+app.put('/api/copilots/:id', (req, res) => {
+  const { id } = req.params;
+  const { name, email, bio, specialty, availability, hourly_rate, role } = req.body;
+
+  // Log para depuración
+  console.log('Datos recibidos en PUT /api/copilots:', req.body);
+
+  if (!name || !email || !availability || !hourly_rate) {
+    res.status(400).json({ error: 'Faltan campos obligatorios' });
+    return;
+  }
+  
+  // Si no se proporciona role, usar un valor predeterminado
+  const roleFinal = role || 'developer';
+
+  // Procesamiento de especialidades (convertir a texto JSON)
+  const specialtyJSON = Array.isArray(specialty) ? JSON.stringify(specialty) : JSON.stringify(specialty.split(',').map(s => s.trim()).filter(Boolean));
+
+  // Verificar si la tabla tiene las columnas correctas
+  db.all("PRAGMA table_info(copilots)", [], (schemaErr, columns) => {
+    if (schemaErr) {
+      console.error('Error al verificar la estructura de la tabla copilots:', schemaErr.message);
+      return res.status(500).json({ error: schemaErr.message });
+    }
+    
+    const columnNames = columns.map(col => col.name);
+    console.log('Columnas existentes en tabla copilots (UPDATE):', columnNames);
+    
+    // Comprobar si falta la columna status
+    const missingStatus = !columnNames.includes('status');
+    
+    // Si falta la columna status, añadirla
+    if (missingStatus) {
+      const alterSql = `ALTER TABLE copilots ADD COLUMN status TEXT DEFAULT 'available' NOT NULL`;
+      console.log('Ejecutando migración en PUT:', alterSql);
+      
+      db.run(alterSql, (alterErr) => {
+        if (alterErr) {
+          console.error('Error al añadir columna status:', alterErr.message);
+          return res.status(500).json({ error: 'Error en la estructura de la tabla: ' + alterErr.message });
+        }
+        
+        console.log('Columna status añadida correctamente');
+        proceedWithUpdate();
+      });
+    } else {
+      proceedWithUpdate();
+    }
+  });
+  
+  // Función para continuar con la actualización
+  function proceedWithUpdate() {
+    console.log('Actualizando copiloto con ID:', id);
+    console.log('Datos a actualizar:', { name, email, bio: bio || '', specialty: specialtyJSON, availability, hourly_rate, role: roleFinal });
+    
+    db.run(`
+      UPDATE copilots SET
+        name = ?, email = ?, bio = ?, specialty = ?, availability = ?, hourly_rate = ?, role = ?
+      WHERE copilot_id = ?
+    `, [
+      name, email, bio || '', specialtyJSON, availability, hourly_rate, roleFinal, id
+    ], function(err) {
+      if (err) {
+        console.error('Error al actualizar copiloto:', err.message);
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      
+      if (this.changes === 0) {
+        res.status(404).json({ error: 'Copiloto no encontrado' });
+        return;
+      }
+      
+      console.log('Copiloto actualizado correctamente:', id);
+      
+      // Devolver objeto actualizado
+      res.json({
+        copilot_id: id, name, email, bio: bio || '', 
+        specialty: JSON.parse(specialtyJSON),
+        availability, hourly_rate, role: roleFinal
+      });
+    });
+  }
 });
 
 // --- Más rutas para otros módulos ---

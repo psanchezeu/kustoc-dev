@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
@@ -38,10 +39,13 @@ type InvoiceFormData = z.infer<typeof invoiceSchema>;
 const InvoiceDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [clients, setClients] = useState<{ id: string; name: string }[]>([]);
   const [jumps, setJumps] = useState<{ id: string; name: string }[]>([]);
-  const isEditing = id !== 'new';
+  // Verificar si estamos en modo edición (el ID existe y no es 'new')
+  const isEditing = id !== undefined && id !== 'new';
   const [invoice, setInvoice] = useState<Invoice | null>(null);
 
   // Configuración de React Hook Form con validación Zod
@@ -78,90 +82,147 @@ const InvoiceDetail = () => {
   };
 
   useEffect(() => {
-    // Cargar la lista de clientes y jumps (simulado para el MVP)
-    const mockClients = [
-      { id: 'CLI001', name: 'Juan Pérez (Taller Pérez S.L.)' },
-      { id: 'CLI002', name: 'Ana Martínez (Clínica DentalCare)' },
-      { id: 'CLI003', name: 'Carlos Rodríguez (Asesoría Fiscal CR)' },
-      { id: 'CLI004', name: 'Laura Gómez (Restaurante La Buena Mesa)' },
-    ];
-    
-    const mockJumps = [
-      { id: 'JMP001', name: 'E-Commerce Básico' },
-      { id: 'JMP002', name: 'CRM Dental' },
-      { id: 'JMP003', name: 'Gestor de Inventario' },
-      { id: 'JMP004', name: 'Blog Corporativo' },
-      { id: 'JMP005', name: 'Panel Administrativo' },
-    ];
-    
-    setClients(mockClients);
-    setJumps(mockJumps);
+    // Cargar la lista de clientes desde la API
+    const fetchClients = async () => {
+      try {
+        const response = await fetch('http://localhost:3001/api/clients');
+        if (!response.ok) {
+          throw new Error(`Error al cargar clientes: ${response.statusText}`);
+        }
+        const data = await response.json();
+        const formattedClients = data.map((client: any) => ({
+          id: client.client_id,
+          name: `${client.name} (${client.company || 'Independiente'})`,
+        }));
+        setClients(formattedClients);
+      } catch (err) {
+        console.error('Error al cargar clientes:', err);
+        setError(err instanceof Error ? err.message : 'Error al cargar clientes');
+      }
+    };
 
-    // Si estamos editando, cargar los datos de la factura existente
-    if (isEditing) {
+    // Cargar la lista de jumps desde la API
+    const fetchJumps = async () => {
+      try {
+        const response = await fetch('http://localhost:3001/api/jumps');
+        if (!response.ok) {
+          throw new Error(`Error al cargar jumps: ${response.statusText}`);
+        }
+        const data = await response.json();
+        const formattedJumps = data.map((jump: any) => ({
+          id: jump.jump_id,
+          name: jump.name,
+        }));
+        setJumps(formattedJumps);
+      } catch (err) {
+        console.error('Error al cargar jumps:', err);
+        setError(err instanceof Error ? err.message : 'Error al cargar jumps');
+      }
+    };
+
+    // Cargar la factura existente si estamos en modo edición
+    const fetchInvoice = async () => {
+      if (!isEditing || !id) return;
       setIsLoading(true);
-      // En una implementación real, llamaríamos a la API
-      // Para el MVP, simulamos la carga de datos
-      setTimeout(() => {
-        const mockInvoice: Invoice = {
-          invoice_id: id!,
-          client_id: 'CLI002',
-          jump_id: 'JMP002',
-          number: 'F-2023-002',
-          amount: 850,
-          tax_percent: 21,
-          status: 'sent',
-          issue_date: '2023-02-20T15:30:00Z',
-          due_date: '2023-03-20T15:30:00Z',
-          notes: 'Consultoría técnica mensual',
-          created_at: '2023-02-20T15:30:00Z',
-        };
-
-        setInvoice(mockInvoice);
-
+      setError(null);
+      
+      try {
+        const response = await fetch(`http://localhost:3001/api/invoices/${id}`);
+        if (!response.ok) {
+          throw new Error(`Error al cargar factura: ${response.statusText}`);
+        }
+        
+        const invoiceData = await response.json();
+        console.log('Datos de factura cargados:', invoiceData);
+        
+        setInvoice(invoiceData);
+        
         // Formatear fechas para los inputs de tipo date
-        const issueDate = new Date(mockInvoice.issue_date).toISOString().split('T')[0];
-        const dueDate = new Date(mockInvoice.due_date).toISOString().split('T')[0];
+        const issueDate = invoiceData.issue_date 
+          ? new Date(invoiceData.issue_date).toISOString().split('T')[0]
+          : '';
+          
+        const dueDate = invoiceData.due_date
+          ? new Date(invoiceData.due_date).toISOString().split('T')[0]
+          : '';
 
         reset({
-          number: mockInvoice.number,
-          client_id: mockInvoice.client_id,
-          jump_id: mockInvoice.jump_id || '',
-          amount: mockInvoice.amount.toString(),
-          tax_percent: mockInvoice.tax_percent.toString(),
-          status: mockInvoice.status,
+          number: invoiceData.number,
+          client_id: invoiceData.client_id,
+          jump_id: invoiceData.jump_id || '',
+          amount: invoiceData.amount.toString(),
+          tax_percent: invoiceData.tax_percent.toString(),
+          status: invoiceData.status,
           issue_date: issueDate,
           due_date: dueDate,
-          notes: mockInvoice.notes || '',
+          notes: invoiceData.notes || '',
         });
-        
+      } catch (err) {
+        console.error('Error al cargar la factura:', err);
+        setError(err instanceof Error ? err.message : 'Error al cargar la factura');
+      } finally {
         setIsLoading(false);
-      }, 800);
-    }
+      }
+    };
+
+    // Ejecutar las funciones de carga de datos
+    fetchClients();
+    fetchJumps();
+    fetchInvoice();
   }, [id, isEditing, reset]);
 
   const onSubmit = async (data: InvoiceFormData) => {
     setIsLoading(true);
+    setError(null);
     
     try {
-      // Procesar los datos antes de enviarlos
-      const processedData = {
+      // Formatear datos para enviar al servidor
+      const invoiceData = {
         ...data,
         amount: parseFloat(data.amount),
         tax_percent: parseFloat(data.tax_percent),
-        jump_id: data.jump_id || undefined,
+        tax_amount: calculateTotal() - parseFloat(data.amount), // Calcular el importe del impuesto
+        total: calculateTotal(),
       };
       
-      // En una implementación real, enviaríamos los datos a la API
-      // Para el MVP, simulamos una respuesta exitosa después de un breve retraso
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Enviar los datos a la API usando el endpoint correcto
+      const url = isEditing 
+        ? `http://localhost:3001/api/invoices/${id}` 
+        : 'http://localhost:3001/api/invoices';
+      const method = isEditing ? 'PUT' : 'POST';
       
-      console.log('Datos del formulario:', processedData);
+      console.log('Enviando datos al servidor:', invoiceData);
+      console.log('URL:', url, 'Método:', method);
       
-      // Redirigir a la lista de facturas después de guardar
+      // Realizar la llamada a la API
+      const response = await fetch(url, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(invoiceData),
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        throw new Error(
+          errorData?.error || 
+          `Error al guardar la factura: ${response.status} ${response.statusText}`
+        );
+      }
+      
+      // Obtener la respuesta y mostrar en console para debug
+      const result = await response.json();
+      console.log('Respuesta del servidor:', result);
+      
+      // Invalidar consultas para refrescar datos
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      
+      // Redirigir a la lista de facturas
       navigate('/invoices');
-    } catch (error) {
-      console.error('Error al guardar la factura:', error);
+    } catch (err) {
+      console.error('Error al guardar la factura:', err);
+      setError(err instanceof Error ? err.message : 'Error desconocido al guardar la factura');
     } finally {
       setIsLoading(false);
     }
@@ -172,16 +233,35 @@ const InvoiceDetail = () => {
     
     if (window.confirm('¿Estás seguro de marcar esta factura como pagada?')) {
       setIsLoading(true);
+      setError(null);
       
       try {
-        // En una implementación real, llamaríamos a la API
-        // Para el MVP, simulamos el proceso
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        // Actualizar el estado de la factura a 'paid' (pagada)
+        const url = `http://localhost:3001/api/invoices/${id}/status`;
+        const response = await fetch(url, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ status: 'paid' }),
+        });
+        
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => null);
+          throw new Error(
+            errorData?.error || 
+            `Error al marcar la factura como pagada: ${response.status} ${response.statusText}`
+          );
+        }
+        
+        // Invalidar consultas para refrescar los datos
+        queryClient.invalidateQueries({ queryKey: ['invoices'] });
         
         // Redireccionar a la lista de facturas
         navigate('/invoices');
-      } catch (error) {
-        console.error('Error al marcar la factura como pagada:', error);
+      } catch (err) {
+        console.error('Error al marcar la factura como pagada:', err);
+        setError(err instanceof Error ? err.message : 'Error desconocido al actualizar la factura');
       } finally {
         setIsLoading(false);
       }
@@ -207,7 +287,13 @@ const InvoiceDetail = () => {
           {isLoading && isEditing ? (
             <div className="py-8 text-center">Cargando datos de la factura...</div>
           ) : (
-            <form id="invoice-form" onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+            <>
+              {error && (
+                <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-md">
+                  {error}
+                </div>
+              )}
+              <form id="invoice-form" onSubmit={handleSubmit(onSubmit)} className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="space-y-2">
                   <Label htmlFor="number">Número de Factura</Label>
@@ -354,7 +440,8 @@ const InvoiceDetail = () => {
                 )}
               </div>
             </form>
-          )}
+          </>
+        )}
         </CardContent>
         {!isLoading && (
           <CardFooter className="flex justify-between">

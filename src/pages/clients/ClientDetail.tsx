@@ -150,17 +150,27 @@ const ClientDetail = () => {
   const createClientMutation = useMutation({
     mutationFn: createClient,
     onSuccess: (data) => {
-      console.log('Cliente creado exitosamente:', data);
-      queryClient.invalidateQueries({ queryKey: ['clients'] });
+      console.log('Cliente creado exitosamente (en el componente):', data);
+      console.log('Invalidando queries...');
       
-      // Asegurar que la redirección funcione correctamente
-      setTimeout(() => {
-        navigate('/clients');
-      }, 100);
+      try {
+        // Primero invalidar la query de clientes
+        queryClient.invalidateQueries({ queryKey: ['clients'] });
+        console.log('Query clients invalidada');
+        
+        // Asegurar que la redirección funcione correctamente
+        console.log('Programando redirección a /clients en 500ms...');
+        setTimeout(() => {
+          console.log('Ejecutando redirección a /clients');
+          navigate('/clients');
+        }, 500);
+      } catch (err) {
+        console.error('Error en la secuencia posterior al guardado:', err);
+      }
     },
     onError: (error) => {
-      console.error('Error al crear cliente:', error);
-      alert('Error al crear el cliente. Por favor intenta nuevamente.');
+      console.error('Error al crear cliente (en el componente):', error);
+      alert(`Error al crear el cliente: ${error instanceof Error ? error.message : 'Error desconocido'}`);
     }
   });
 
@@ -204,7 +214,43 @@ const ClientDetail = () => {
       
       if (isNewClient) {
         console.log('Creando nuevo cliente con datos:', data);
-        createClientMutation.mutate(data);
+        
+        // Implementar directamente la llamada a la API para depuración
+        try {
+          console.log('URL de la API:', `${SERVER_CONFIG.BASE_URL}/api/clients`);
+          
+          const response = await fetch(`${SERVER_CONFIG.BASE_URL}/api/clients`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(data),
+          });
+          
+          console.log('Respuesta del servidor (status):', response.status);
+          
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Error del servidor:', response.status, errorText);
+            alert(`Error al crear cliente: ${response.status} ${errorText}`);
+            return;
+          }
+          
+          const responseData = await response.json();
+          console.log('Cliente creado exitosamente:', responseData);
+          
+          // Actualizar la caché de React Query
+          queryClient.invalidateQueries({ queryKey: ['clients'] });
+          
+          // Redireccionar después de un pequeño retraso
+          setTimeout(() => {
+            navigate('/clients');
+          }, 500);
+          
+        } catch (apiError) {
+          console.error('Error al llamar a la API:', apiError);
+          alert(`Error al crear cliente: ${apiError instanceof Error ? apiError.message : 'Error desconocido'}`);
+        }
       } else if (id) {
         console.log('Actualizando cliente existente:', id, 'con datos:', data);
         updateClientMutation.mutate({ id, clientData: data });

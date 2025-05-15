@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
@@ -27,10 +28,13 @@ type ReferralFormData = z.infer<typeof referralSchema>;
 const ReferralDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [isLoading, setIsLoading] = useState(false);
-  const [clients, setClients] = useState<{ id: string; name: string }[]>([]);
-  const isEditing = id !== 'new';
+  const [error, setError] = useState<string | null>(null);
+  // Verificar si estamos en modo edición (el ID existe y no es 'new')
+  const isEditing = id !== undefined && id !== 'new';
   const [referral, setReferral] = useState<Referral | null>(null);
+  const [clients, setClients] = useState<{ id: string; name: string }[]>([]);
   const [referralLink, setReferralLink] = useState('');
 
   // Configuración de React Hook Form con validación Zod
@@ -53,63 +57,120 @@ const ReferralDetail = () => {
   const currentStatus = watch('status');
 
   useEffect(() => {
-    // Cargar la lista de clientes (simulado para el MVP)
-    const mockClients = [
-      { id: 'CLI001', name: 'Juan Pérez (Taller Pérez S.L.)' },
-      { id: 'CLI002', name: 'Ana Martínez (Clínica DentalCare)' },
-      { id: 'CLI003', name: 'Carlos Rodríguez (Asesoría Fiscal CR)' },
-      { id: 'CLI004', name: 'Laura Gómez (Restaurante La Buena Mesa)' },
-    ];
-    setClients(mockClients);
+    // Cargar la lista de clientes desde la API
+    const fetchClients = async () => {
+      try {
+        const response = await fetch('http://localhost:3001/api/clients');
+        if (!response.ok) {
+          throw new Error(`Error al cargar clientes: ${response.statusText}`);
+        }
+        const data = await response.json();
+        const formattedClients = data.map((client: any) => ({
+          id: client.client_id,
+          name: `${client.name} (${client.company || 'Independiente'})`,
+        }));
+        setClients(formattedClients);
+      } catch (err) {
+        console.error('Error al cargar clientes:', err);
+        setError(err instanceof Error ? err.message : 'Error al cargar clientes');
+      }
+    };
 
-    // Si estamos editando, cargar los datos del referido existente
-    if (isEditing) {
+    // Cargar el referido existente si estamos en modo edición
+    const fetchReferral = async () => {
+      if (!isEditing || !id) return;
       setIsLoading(true);
-      // En una implementación real, llamaríamos a la API
-      // Para el MVP, simulamos la carga de datos
-      setTimeout(() => {
-        const mockReferral: Referral = {
-          referral_id: id!,
-          code: 'ELENA20',
-          email: 'elena@ejemplo.com',
-          name: 'Elena Martínez',
-          status: 'registered',
-          created_at: '2023-07-15T14:45:00Z',
-        };
-
-        setReferral(mockReferral);
-        setReferralLink(`https://kustoc.com/referral/${mockReferral.code}`);
-
-        reset({
-          name: mockReferral.name || '',
-          email: mockReferral.email || '',
-          status: mockReferral.status,
-          client_id: mockReferral.client_id || '',
-        });
+      setError(null);
+      
+      try {
+        const response = await fetch(`http://localhost:3001/api/referrals/${id}`);
+        if (!response.ok) {
+          throw new Error(`Error al cargar referido: ${response.statusText}`);
+        }
         
+        const referralData = await response.json();
+        console.log('Datos de referido cargados:', referralData);
+        
+        setReferral(referralData);
+        setReferralLink(`https://kustoc.com/referral/${referralData.code}`);
+        
+        reset({
+          name: referralData.name || '',
+          email: referralData.email || '',
+          status: referralData.status,
+          client_id: referralData.client_id || '',
+        });
+      } catch (err) {
+        console.error('Error al cargar el referido:', err);
+        setError(err instanceof Error ? err.message : 'Error al cargar el referido');
+      } finally {
         setIsLoading(false);
-      }, 800);
-    } else {
-      // Para una nueva referencia, generamos un código único
-      const newCode = 'REF' + Math.random().toString(36).substring(2, 8).toUpperCase();
-      setReferralLink(`https://kustoc.com/referral/${newCode}`);
-    }
+      }
+    };
+
+    // Generar código para nuevos referidos
+    const generateReferralCode = () => {
+      if (!isEditing) {
+        const newCode = 'REF' + Math.random().toString(36).substring(2, 8).toUpperCase();
+        setReferralLink(`https://kustoc.com/referral/${newCode}`);
+      }
+    };
+
+    // Ejecutar las funciones de carga de datos
+    fetchClients();
+    fetchReferral();
+    generateReferralCode();
   }, [id, isEditing, reset]);
 
   const onSubmit = async (data: ReferralFormData) => {
     setIsLoading(true);
+    setError(null);
     
     try {
-      // En una implementación real, enviaríamos los datos a la API
-      // Para el MVP, simulamos una respuesta exitosa después de un breve retraso
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Preparar los datos para enviar a la API
+      const referralData = {
+        ...data,
+        code: referral?.code || referralLink.split('/').pop(),
+      };
       
-      console.log('Datos del formulario:', data);
+      // Enviar los datos a la API usando el endpoint correcto
+      const url = isEditing 
+        ? `http://localhost:3001/api/referrals/${id}` 
+        : 'http://localhost:3001/api/referrals';
+      const method = isEditing ? 'PUT' : 'POST';
       
-      // Redirigir a la lista de referidos después de guardar
+      console.log('Enviando datos al servidor:', referralData);
+      console.log('URL:', url, 'Método:', method);
+      
+      // Realizar la llamada a la API
+      const response = await fetch(url, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(referralData),
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        throw new Error(
+          errorData?.error || 
+          `Error al guardar el referido: ${response.status} ${response.statusText}`
+        );
+      }
+      
+      // Obtener la respuesta y mostrar en console para debug
+      const result = await response.json();
+      console.log('Respuesta del servidor:', result);
+      
+      // Invalidar consultas para refrescar datos
+      queryClient.invalidateQueries({ queryKey: ['referrals'] });
+      
+      // Redirigir a la lista de referidos
       navigate('/referrals');
-    } catch (error) {
-      console.error('Error al guardar el referido:', error);
+    } catch (err) {
+      console.error('Error al guardar el referido:', err);
+      setError(err instanceof Error ? err.message : 'Error desconocido al guardar el referido');
     } finally {
       setIsLoading(false);
     }
@@ -145,6 +206,11 @@ const ReferralDetail = () => {
             <div className="py-8 text-center">Cargando datos del referido...</div>
           ) : (
             <div className="space-y-6">
+              {error && (
+                <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-md">
+                  {error}
+                </div>
+              )}
               {(isEditing || referralLink) && (
                 <div className="p-4 border rounded-md bg-muted">
                   <div className="space-y-4">

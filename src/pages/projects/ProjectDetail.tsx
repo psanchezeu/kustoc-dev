@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
@@ -27,9 +28,13 @@ type ProjectFormData = z.infer<typeof projectSchema>;
 const ProjectDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [clients, setClients] = useState<{ id: string; name: string }[]>([]);
-  const isEditing = id !== 'new';
+  // Verificar si estamos en modo edición (el ID existe y no es 'new')
+  const isEditing = id !== undefined && id !== 'new';
+  const [project, setProject] = useState<Project | null>(null);
 
   // Configuración de React Hook Form con validación Zod
   const {
@@ -48,57 +53,104 @@ const ProjectDetail = () => {
   });
 
   useEffect(() => {
-    // Cargar la lista de clientes (simulado para el MVP)
-    const mockClients = [
-      { id: 'CLI001', name: 'Juan Pérez (Taller Pérez S.L.)' },
-      { id: 'CLI002', name: 'Ana Martínez (Clínica DentalCare)' },
-      { id: 'CLI003', name: 'Carlos Rodríguez (Asesoría Fiscal CR)' },
-      { id: 'CLI004', name: 'Laura Gómez (Restaurante La Buena Mesa)' },
-    ];
-    setClients(mockClients);
+    // Cargar la lista de clientes desde la API
+    const fetchClients = async () => {
+      try {
+        const response = await fetch('http://localhost:3001/api/clients');
+        if (!response.ok) {
+          throw new Error(`Error al cargar clientes: ${response.statusText}`);
+        }
+        const data = await response.json();
+        const formattedClients = data.map((client: any) => ({
+          id: client.client_id,
+          name: `${client.name} (${client.company || 'Independiente'})`,
+        }));
+        setClients(formattedClients);
+      } catch (err) {
+        console.error('Error al cargar clientes:', err);
+        setError(err instanceof Error ? err.message : 'Error al cargar clientes');
+      }
+    };
 
-    // Si estamos editando, cargar los datos del proyecto existente
-    if (isEditing) {
+    // Cargar el proyecto existente si estamos en modo edición
+    const fetchProject = async () => {
+      if (!isEditing || !id) return;
       setIsLoading(true);
-      // En una implementación real, llamaríamos a la API
-      // Para el MVP, simulamos la carga de datos
-      setTimeout(() => {
-        const mockProject: Project = {
-          project_id: id!,
-          client_id: 'CLI002',
-          name: 'Sistema de Reservas Online',
-          description: 'Implementación de plataforma para gestionar citas y reservas',
-          status: 'planning',
-          created_at: '2023-09-22T11:15:00Z',
-          updated_at: '2023-09-22T11:15:00Z',
-        };
-
-        reset({
-          name: mockProject.name,
-          description: mockProject.description,
-          status: mockProject.status,
-          client_id: mockProject.client_id,
-        });
+      setError(null);
+      
+      try {
+        const response = await fetch(`http://localhost:3001/api/projects/${id}`);
+        if (!response.ok) {
+          throw new Error(`Error al cargar proyecto: ${response.statusText}`);
+        }
         
+        const projectData = await response.json();
+        console.log('Datos de proyecto cargados:', projectData);
+        
+        setProject(projectData);
+        
+        reset({
+          name: projectData.name,
+          description: projectData.description,
+          status: projectData.status,
+          client_id: projectData.client_id,
+        });
+      } catch (err) {
+        console.error('Error al cargar el proyecto:', err);
+        setError(err instanceof Error ? err.message : 'Error al cargar el proyecto');
+      } finally {
         setIsLoading(false);
-      }, 800);
-    }
+      }
+    };
+
+    // Ejecutar las funciones de carga de datos
+    fetchClients();
+    fetchProject();
   }, [id, isEditing, reset]);
 
   const onSubmit = async (data: ProjectFormData) => {
     setIsLoading(true);
+    setError(null);
     
     try {
-      // En una implementación real, enviaríamos los datos a la API
-      // Para el MVP, simulamos una respuesta exitosa después de un breve retraso
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Enviar los datos a la API usando el endpoint correcto
+      const url = isEditing 
+        ? `http://localhost:3001/api/projects/${id}` 
+        : 'http://localhost:3001/api/projects';
+      const method = isEditing ? 'PUT' : 'POST';
       
-      console.log('Datos del formulario:', data);
+      console.log('Enviando datos al servidor:', data);
+      console.log('URL:', url, 'Método:', method);
       
-      // Redirigir a la lista de proyectos después de guardar
+      // Realizar la llamada a la API
+      const response = await fetch(url, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data),
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        throw new Error(
+          errorData?.error || 
+          `Error al guardar el proyecto: ${response.status} ${response.statusText}`
+        );
+      }
+      
+      // Obtener la respuesta y mostrar en console para debug
+      const result = await response.json();
+      console.log('Respuesta del servidor:', result);
+      
+      // Invalidar consultas para refrescar datos
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      
+      // Redirigir a la lista de proyectos
       navigate('/projects');
-    } catch (error) {
-      console.error('Error al guardar el proyecto:', error);
+    } catch (err) {
+      console.error('Error al guardar el proyecto:', err);
+      setError(err instanceof Error ? err.message : 'Error desconocido al guardar el proyecto');
     } finally {
       setIsLoading(false);
     }
@@ -123,7 +175,13 @@ const ProjectDetail = () => {
           {isLoading && isEditing ? (
             <div className="py-8 text-center">Cargando datos del proyecto...</div>
           ) : (
-            <form id="project-form" onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+            <>
+              {error && (
+                <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-md">
+                  {error}
+                </div>
+              )}
+              <form id="project-form" onSubmit={handleSubmit(onSubmit)} className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
                   <Label htmlFor="name">Nombre</Label>
@@ -184,7 +242,8 @@ const ProjectDetail = () => {
                   <p className="text-sm text-red-500">{errors.status.message}</p>
                 )}
               </div>
-            </form>
+              </form>
+            </>
           )}
         </CardContent>
         {!isLoading && (

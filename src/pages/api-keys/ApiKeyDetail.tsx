@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
@@ -27,8 +28,11 @@ type ApiKeyFormData = z.infer<typeof apiKeySchema>;
 const ApiKeyDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const isEditing = id !== 'new';
+  const queryClient = useQueryClient();
+  // Verificar si estamos en modo edición (el ID existe y no es 'new')
+  const isEditing = id !== undefined && id !== 'new';
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [clients, setClients] = useState<{ id: string; name: string }[]>([]);
   const [apiKey, setApiKey] = useState<ApiKey | null>(null);
   const [showKey, setShowKey] = useState(false);
@@ -97,26 +101,36 @@ const ApiKeyDetail = () => {
 
   const onSubmit = async (data: ApiKeyFormData) => {
     setIsLoading(true);
+    setError(null);
     
     try {
-      // En una implementación real, llamaríamos a la API
-      // Para el MVP, simulamos el proceso
-
       // Formatear datos para enviar al servidor
       const apiKeyData = {
         ...data,
         expires_at: data.expires_at ? new Date(data.expires_at).toISOString() : undefined,
       };
       
-      console.log('Datos a enviar:', apiKeyData);
+      // Enviar los datos a la API usando el endpoint correcto
+      const url = isEditing 
+        ? `http://localhost:3001/api/api-keys/${id}` 
+        : 'http://localhost:3001/api/api-keys';
+      const method = isEditing ? 'PUT' : 'POST';
       
-      // Simular respuesta exitosa
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      console.log('Enviando datos al servidor:', apiKeyData);
+      console.log('URL:', url, 'Método:', method);
       
-      // Redireccionar a la lista de claves API
+      // En una implementación real, haceríamos la llamada API
+      // Para el MVP, simulamos el proceso y la respuesta
+      await new Promise(resolve => setTimeout(resolve, 800));
+      
+      // Invalidar consultas para refrescar datos
+      queryClient.invalidateQueries({ queryKey: ['api-keys'] });
+      
+      // Redirigir a la lista de claves API
       navigate('/api-keys');
-    } catch (error) {
-      console.error('Error al guardar la clave API:', error);
+    } catch (err) {
+      console.error('Error al guardar la clave API:', err);
+      setError(err instanceof Error ? err.message : 'Error desconocido al guardar la clave API');
     } finally {
       setIsLoading(false);
     }
@@ -179,6 +193,12 @@ const ApiKeyDetail = () => {
           Volver
         </Button>
       </div>
+      
+      {error && (
+        <div className="bg-destructive/15 text-destructive px-4 py-3 rounded-md mb-4">
+          {error}
+        </div>
+      )}
       
       <Card>
         <CardHeader>
