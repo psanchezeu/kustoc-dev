@@ -1011,6 +1011,378 @@ app.put('/api/copilots/:id', (req, res) => {
   }
 });
 
+// ----- Rutas para Proyectos -----
+
+// Obtener todos los proyectos
+app.get('/api/projects', (req, res) => {
+  db.all('SELECT * FROM projects ORDER BY name', [], (err, rows) => {
+    if (err) {
+      console.error('Error al obtener proyectos:', err.message);
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.json(rows);
+  });
+});
+
+// Obtener un proyecto específico por ID
+app.get('/api/projects/:id', (req, res) => {
+  const { id } = req.params;
+  console.log(`Buscando proyecto con ID: ${id}`);
+  
+  db.get('SELECT * FROM projects WHERE project_id = ?', [id], (err, row) => {
+    if (err) {
+      console.error(`Error al obtener proyecto ${id}:`, err.message);
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    if (!row) {
+      console.log(`No se encontró proyecto con ID: ${id}`);
+      res.status(404).json({ error: 'Proyecto no encontrado' });
+      return;
+    }
+    console.log(`Proyecto encontrado:`, row);
+    res.json(row);
+  });
+});
+
+// Crear un nuevo proyecto
+app.post('/api/projects', (req, res) => {
+  const {
+    name, client_id, jump_id, copilot_id, description, status,
+    start_date, estimated_end_date, contracted_hours, consumed_hours
+  } = req.body;
+  
+  // Validar campos obligatorios
+  if (!name || !client_id || !jump_id || !status || !start_date || contracted_hours === undefined) {
+    console.error('Faltan campos obligatorios al crear proyecto:', req.body);
+    res.status(400).json({ error: 'Faltan campos obligatorios' });
+    return;
+  }
+  
+  // Generar ID único para el proyecto
+  const generateProjectId = (callback) => {
+    // Formato: PRJ001, PRJ002, etc.
+    db.get("SELECT MAX(CAST(SUBSTR(project_id, 4) AS INTEGER)) as max_id FROM projects WHERE project_id LIKE 'PRJ%'", [], (err, row) => {
+      let nextId = 1;
+      if (!err && row && row.max_id) {
+        nextId = row.max_id + 1;
+      }
+      callback(`PRJ${nextId.toString().padStart(3, '0')}`);
+    });
+  };
+  
+  generateProjectId((project_id) => {
+    const now = new Date().toISOString();
+    
+    db.run(`
+      INSERT INTO projects (
+        project_id, name, client_id, jump_id, copilot_id, description, status,
+        start_date, estimated_end_date, contracted_hours, consumed_hours
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+      project_id, name, client_id, jump_id, copilot_id || null, description || '',
+      status, start_date, estimated_end_date || null, contracted_hours, consumed_hours || 0
+    ], function(err) {
+      if (err) {
+        console.error('Error al crear proyecto:', err.message);
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      
+      // Devolver el proyecto creado
+      console.log(`Proyecto creado con ID: ${project_id}`);
+      res.status(201).json({
+        project_id, name, client_id, jump_id, copilot_id, description,
+        status, start_date, estimated_end_date, contracted_hours, consumed_hours
+      });
+    });
+  });
+});
+
+// Actualizar un proyecto existente
+app.put('/api/projects/:id', (req, res) => {
+  const { id } = req.params;
+  const updates = req.body;
+  
+  // No permitir actualizar el ID del proyecto
+  delete updates.project_id;
+  
+  // Construir la consulta SQL dinámicamente
+  const fields = Object.keys(updates).filter(key => updates[key] !== undefined);
+  
+  if (fields.length === 0) {
+    res.status(400).json({ error: 'No hay campos para actualizar' });
+    return;
+  }
+  
+  const setClauses = fields.map(field => `${field} = ?`).join(', ');
+  const values = fields.map(field => updates[field]);
+  
+  // Añadir el ID como último valor
+  values.push(id);
+  
+  const sql = `UPDATE projects SET ${setClauses} WHERE project_id = ?`;
+  
+  db.run(sql, values, function(err) {
+    if (err) {
+      console.error(`Error al actualizar proyecto ${id}:`, err.message);
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    
+    if (this.changes === 0) {
+      res.status(404).json({ error: 'Proyecto no encontrado' });
+      return;
+    }
+    
+    // Obtener el proyecto actualizado
+    db.get('SELECT * FROM projects WHERE project_id = ?', [id], (getErr, row) => {
+      if (getErr) {
+        console.error(`Error al obtener proyecto actualizado ${id}:`, getErr.message);
+        res.status(500).json({ error: getErr.message });
+        return;
+      }
+      
+      console.log(`Proyecto ${id} actualizado correctamente`);
+      res.json(row);
+    });
+  });
+});
+
+// Eliminar un proyecto por ID
+app.delete('/api/projects/:id', (req, res) => {
+  const { id } = req.params;
+  
+  db.run('DELETE FROM projects WHERE project_id = ?', [id], function(err) {
+    if (err) {
+      console.error(`Error al eliminar proyecto ${id}:`, err.message);
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    
+    if (this.changes === 0) {
+      res.status(404).json({ error: 'Proyecto no encontrado' });
+      return;
+    }
+    
+    console.log(`Proyecto ${id} eliminado correctamente`);
+    res.status(200).json({ success: true });
+  });
+});
+
+// Asignar un jump a un proyecto
+app.put('/api/projects/:projectId/jump', (req, res) => {
+  const { projectId } = req.params;
+  const { jump_id } = req.body;
+  
+  if (!jump_id) {
+    res.status(400).json({ error: 'Se requiere jump_id' });
+    return;
+  }
+  
+  db.run('UPDATE projects SET jump_id = ? WHERE project_id = ?', [jump_id, projectId], function(err) {
+    if (err) {
+      console.error(`Error al asignar jump ${jump_id} al proyecto ${projectId}:`, err.message);
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    
+    if (this.changes === 0) {
+      res.status(404).json({ error: 'Proyecto no encontrado' });
+      return;
+    }
+    
+    console.log(`Jump ${jump_id} asignado al proyecto ${projectId}`);
+    res.json({ success: true, project_id: projectId, jump_id });
+  });
+});
+
+// Asignar un copiloto a un proyecto (compatibilidad con versión anterior)
+app.put('/api/projects/:projectId/copilot', (req, res) => {
+  const { projectId } = req.params;
+  const { copilot_id } = req.body;
+  
+  if (!copilot_id) {
+    res.status(400).json({ error: 'Se requiere copilot_id' });
+    return;
+  }
+  
+  // Actualizar el campo copilot_id para mantener compatibilidad
+  db.run('UPDATE projects SET copilot_id = ? WHERE project_id = ?', [copilot_id, projectId], function(err) {
+    if (err) {
+      console.error(`Error al asignar copiloto ${copilot_id} al proyecto ${projectId}:`, err.message);
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    
+    if (this.changes === 0) {
+      res.status(404).json({ error: 'Proyecto no encontrado' });
+      return;
+    }
+    
+    // También añadir la relación a la tabla project_copilots si no existe
+    const now = new Date().toISOString();
+    db.run(
+      'INSERT OR IGNORE INTO project_copilots (project_id, copilot_id, assigned_date) VALUES (?, ?, ?)', 
+      [projectId, copilot_id, now], 
+      function(insertErr) {
+        if (insertErr) {
+          console.error(`Error al añadir relación a project_copilots:`, insertErr.message);
+          // No fallamos la petición entera por esto, ya que la asignación principal funcionó
+        }
+        console.log(`Copiloto ${copilot_id} asignado al proyecto ${projectId}`);
+        res.json({ success: true, project_id: projectId, copilot_id });
+      }
+    );
+  });
+});
+
+// Obtener todos los copilotos asignados a un proyecto
+app.get('/api/projects/:projectId/copilots', (req, res) => {
+  const { projectId } = req.params;
+  
+  db.all(
+    `SELECT c.* FROM copilots c 
+     JOIN project_copilots pc ON c.copilot_id = pc.copilot_id 
+     WHERE pc.project_id = ? 
+     ORDER BY c.name`, 
+    [projectId], 
+    (err, rows) => {
+      if (err) {
+        console.error(`Error al obtener copilotos del proyecto ${projectId}:`, err.message);
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      res.json(rows);
+    }
+  );
+});
+
+// Asignar múltiples copilotos a un proyecto
+app.post('/api/projects/:projectId/copilots', (req, res) => {
+  const { projectId } = req.params;
+  const { copilot_ids } = req.body;
+  
+  if (!copilot_ids || !Array.isArray(copilot_ids) || copilot_ids.length === 0) {
+    res.status(400).json({ error: 'Se requiere un array de copilot_ids' });
+    return;
+  }
+  
+  // Verificar que el proyecto existe
+  db.get('SELECT 1 FROM projects WHERE project_id = ?', [projectId], (err, row) => {
+    if (err) {
+      console.error(`Error al verificar proyecto ${projectId}:`, err.message);
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    
+    if (!row) {
+      res.status(404).json({ error: 'Proyecto no encontrado' });
+      return;
+    }
+    
+    // Primero eliminamos todas las asignaciones existentes
+    db.run('DELETE FROM project_copilots WHERE project_id = ?', [projectId], function(deleteErr) {
+      if (deleteErr) {
+        console.error(`Error al eliminar copilotos previos del proyecto ${projectId}:`, deleteErr.message);
+        res.status(500).json({ error: deleteErr.message });
+        return;
+      }
+      
+      const now = new Date().toISOString();
+      const stmt = db.prepare('INSERT INTO project_copilots (project_id, copilot_id, assigned_date) VALUES (?, ?, ?)');
+      let insertCount = 0;
+      
+      // Insertamos las nuevas asignaciones
+      copilot_ids.forEach(copilotId => {
+        stmt.run(projectId, copilotId, now, function(insertErr) {
+          if (insertErr) {
+            console.error(`Error al asignar copiloto ${copilotId} al proyecto ${projectId}:`, insertErr.message);
+          } else {
+            insertCount++;
+          }
+        });
+      });
+      
+      stmt.finalize(() => {
+        // Si hay al menos un copiloto, actualizamos el campo copilot_id por compatibilidad
+        if (copilot_ids.length > 0) {
+          db.run('UPDATE projects SET copilot_id = ? WHERE project_id = ?', 
+            [copilot_ids[0], projectId], 
+            function(updateErr) {
+              if (updateErr) {
+                console.error(`Error al actualizar copilot_id principal:`, updateErr.message);
+              }
+              console.log(`Asignados ${insertCount} copilotos al proyecto ${projectId}`);
+              res.json({ success: true, project_id: projectId, assigned_count: insertCount });
+            }
+          );
+        } else {
+          console.log(`Asignados ${insertCount} copilotos al proyecto ${projectId}`);
+          res.json({ success: true, project_id: projectId, assigned_count: insertCount });
+        }
+      });
+    });
+  });
+});
+
+// Eliminar un copiloto de un proyecto
+app.delete('/api/projects/:projectId/copilots/:copilotId', (req, res) => {
+  const { projectId, copilotId } = req.params;
+  
+  db.run(
+    'DELETE FROM project_copilots WHERE project_id = ? AND copilot_id = ?', 
+    [projectId, copilotId], 
+    function(err) {
+      if (err) {
+        console.error(`Error al eliminar copiloto ${copilotId} del proyecto ${projectId}:`, err.message);
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      
+      if (this.changes === 0) {
+        res.status(404).json({ error: 'Relación no encontrada' });
+        return;
+      }
+      
+      // Si eliminamos el copiloto principal, actualizamos el campo copilot_id
+      db.get('SELECT copilot_id FROM projects WHERE project_id = ? AND copilot_id = ?', 
+        [projectId, copilotId], 
+        (checkErr, checkRow) => {
+          if (checkErr) {
+            console.error(`Error al verificar copilot_id principal:`, checkErr.message);
+          }
+          
+          if (checkRow) {
+            // Este era el copiloto principal, intentar asignar otro o dejar nulo
+            db.get(
+              'SELECT copilot_id FROM project_copilots WHERE project_id = ? LIMIT 1', 
+              [projectId], 
+              (selectErr, selectRow) => {
+                const newCopilotId = selectRow ? selectRow.copilot_id : null;
+                
+                db.run(
+                  'UPDATE projects SET copilot_id = ? WHERE project_id = ?', 
+                  [newCopilotId, projectId], 
+                  function(updateErr) {
+                    if (updateErr) {
+                      console.error(`Error al actualizar copilot_id principal:`, updateErr.message);
+                    }
+                  }
+                );
+              }
+            );
+          }
+          
+          console.log(`Copiloto ${copilotId} eliminado del proyecto ${projectId}`);
+          res.json({ success: true });
+        }
+      );
+    }
+  );
+});
+
 // --- Más rutas para otros módulos ---
 
 // Iniciar el servidor

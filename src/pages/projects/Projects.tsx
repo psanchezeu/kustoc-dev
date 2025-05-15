@@ -4,8 +4,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Ca
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '../../components/ui/Table';
-import { Project } from '../../types';
+import { Project, Client, Jump, Copilot } from '../../types';
 import { formatDate } from '../../lib/utils';
+import { getProjects } from '../../api/projectsApi';
+import { SERVER_CONFIG } from '../../config';
 
 /**
  * Página de listado de proyectos
@@ -18,58 +20,50 @@ const Projects = () => {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // En una implementación real, llamaríamos a la API
-    const mockProjects: Project[] = [
-      {
-        project_id: 'PRJ001',
-        client_id: 'CLI001',
-        name: 'Rediseño de Imagen Corporativa',
-        description: 'Actualización completa de la identidad visual de la empresa',
-        status: 'in_progress',
-        created_at: '2023-05-10T09:00:00Z',
-        updated_at: '2023-10-15T14:30:00Z',
-      },
-      {
-        project_id: 'PRJ002',
-        client_id: 'CLI002',
-        name: 'Sistema de Reservas Online',
-        description: 'Implementación de plataforma para gestionar citas y reservas',
-        status: 'planning',
-        created_at: '2023-09-22T11:15:00Z',
-        updated_at: '2023-09-22T11:15:00Z',
-      },
-      {
-        project_id: 'PRJ003',
-        client_id: 'CLI003',
-        name: 'Aplicación Móvil',
-        description: 'Desarrollo de app para gestión de clientes y facturas',
-        status: 'completed',
-        created_at: '2023-03-15T08:45:00Z',
-        updated_at: '2023-08-30T16:20:00Z',
-      },
-      {
-        project_id: 'PRJ004',
-        client_id: 'CLI001',
-        name: 'Tienda Online',
-        description: 'Implementación de e-commerce con pasarela de pagos',
-        status: 'on_hold',
-        created_at: '2023-06-18T13:30:00Z',
-        updated_at: '2023-07-25T10:45:00Z',
-      },
-      {
-        project_id: 'PRJ005',
-        client_id: 'CLI004',
-        name: 'Migración a la Nube',
-        description: 'Traslado de infraestructura a servicios cloud',
-        status: 'in_progress',
-        created_at: '2023-10-05T09:30:00Z',
-        updated_at: '2023-10-28T17:15:00Z',
-      },
-    ];
+    // Función para cargar los proyectos desde la API
+    const fetchProjects = async () => {
+      try {
+        setIsLoading(true);
+        const projectsData = await getProjects();
+        
+        if (projectsData.length === 0) {
+          // Si no hay datos, mostramos datos de prueba para testing
+          const mockProjects: Project[] = [
+            {
+              project_id: 'PRJ001',
+              client_id: 'CLI001',
+              name: 'Rediseño de Imagen Corporativa',
+              description: 'Actualización completa de la identidad visual de la empresa',
+              status: 'in_progress',
+              created_at: '2023-05-10T09:00:00Z',
+              updated_at: '2023-10-15T14:30:00Z',
+            },
+            {
+              project_id: 'PRJ002',
+              client_id: 'CLI002',
+              name: 'Sistema de Reservas Online',
+              description: 'Implementación de plataforma para gestionar citas y reservas',
+              status: 'planning',
+              created_at: '2023-09-22T11:15:00Z',
+              updated_at: '2023-09-22T11:15:00Z',
+            },
+          ];
+          setProjects(mockProjects);
+          setFilteredProjects(mockProjects);
+        } else {
+          // Si hay datos de la API, los usamos
+          setProjects(projectsData);
+          setFilteredProjects(projectsData);
+        }
+      } catch (error) {
+        console.error('Error al cargar proyectos:', error);
+        // Mostrar un mensaje de error al usuario
+      } finally {
+        setIsLoading(false);
+      }
+    };
     
-    setProjects(mockProjects);
-    setFilteredProjects(mockProjects);
-    setIsLoading(false);
+    fetchProjects();
   }, []);
 
   useEffect(() => {
@@ -172,8 +166,10 @@ const Projects = () => {
                 <TableRow>
                   <TableHead>Nombre</TableHead>
                   <TableHead>Cliente</TableHead>
+                  <TableHead>Jump</TableHead>
+                  <TableHead>Copiloto</TableHead>
                   <TableHead>Estado</TableHead>
-                  <TableHead>Fecha de Actualización</TableHead>
+                  <TableHead>Actualización</TableHead>
                   <TableHead className="text-right">Acciones</TableHead>
                 </TableRow>
               </TableHeader>
@@ -183,8 +179,26 @@ const Projects = () => {
                     <TableCell className="font-medium">{project.name}</TableCell>
                     <TableCell>
                       <Link to={`/clients/${project.client_id}`} className="text-primary hover:underline">
-                        Cliente {project.client_id}
+                        {project.client_id}
                       </Link>
+                    </TableCell>
+                    <TableCell>
+                      {project.jump_id ? (
+                        <Link to={`/jumps/${project.jump_id}`} className="text-primary hover:underline">
+                          Ver Jump
+                        </Link>
+                      ) : (
+                        <span className="text-gray-400 text-sm">No asignado</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {project.copilot_id ? (
+                        <Link to={`/copilots/${project.copilot_id}`} className="text-primary hover:underline">
+                          Ver Copiloto
+                        </Link>
+                      ) : (
+                        <span className="text-gray-400 text-sm">No asignado</span>
+                      )}
                     </TableCell>
                     <TableCell>
                       <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusBadgeClass(project.status)}`}>

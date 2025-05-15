@@ -82,11 +82,22 @@ export interface Referral {
 export interface Project {
   project_id: string;
   client_id: string;
+  jump_id: string; // Es obligatorio en la base de datos
+  copilot_id?: string; // Campo heredado para compatibilidad
+  copilots?: string[]; // Array de IDs de copilotos asignados al proyecto
   name: string;
-  description: string;
+  description?: string;
   status: 'planning' | 'in_progress' | 'on_hold' | 'completed';
-  created_at: string;
-  updated_at: string;
+  start_date: string;
+  estimated_end_date?: string;
+  contracted_hours: number; // Es obligatorio en la base de datos
+  consumed_hours?: number;
+  files?: string;
+  notifications?: string;
+  client_portal_url?: string;
+  client_comments?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 // Copiloto

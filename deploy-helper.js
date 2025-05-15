@@ -1,6 +1,7 @@
 // Script para ayudar con el despliegue en producción
 const fs = require('fs');
 const path = require('path');
+const { exec } = require('child_process');
 
 // Función para modificar el package.json del directorio /src
 function updateClientPackageJson() {
@@ -21,13 +22,40 @@ function updateClientPackageJson() {
   return originalBuildScript;
 }
 
+// Función para ejecutar el script de corrección de importaciones en src
+function runDeployFixScript() {
+  return new Promise((resolve, reject) => {
+    console.log('🔄 Ejecutando script de corrección de importaciones...');
+    const scriptPath = path.join(__dirname, 'src', 'deploy.mjs');
+    
+    // Ejecuta el script Node.js para corregir importaciones
+    exec(`node ${scriptPath}`, (error, stdout) => {
+      if (error) {
+        console.error('❌ Error al ejecutar el script de corrección:', error);
+        return reject(error);
+      }
+      
+      console.log(stdout);
+      console.log('✅ Correcciones de importación aplicadas con éxito');
+      resolve();
+    });
+  });
+}
+
 // Función principal
-function main() {
-  console.log('🚀 Preparando archivos para despliegue...');
-  const originalBuildScript = updateClientPackageJson();
-  
-  console.log('✅ Todos los archivos están listos para despliegue');
-  console.log('⚠️ Recuerde restaurar la configuración original después del despliegue');
+async function main() {
+  try {
+    console.log('🚀 Preparando archivos para despliegue...');
+    const originalBuildScript = updateClientPackageJson();
+    
+    await runDeployFixScript();
+    
+    console.log('✅ Todos los archivos están listos para despliegue');
+    console.log('⚠️ Recuerde restaurar la configuración original después del despliegue');
+  } catch (error) {
+    console.error('❌ Error durante la preparación del despliegue:', error);
+    process.exit(1);
+  }
 }
 
 main();

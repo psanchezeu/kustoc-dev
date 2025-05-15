@@ -89,7 +89,7 @@ const ProjectDetail = () => {
     defaultValues: {
       name: '',
       description: '',
-      status: 'planning',
+      status: 'planning' as const,
       client_id: '',
       jump_id: '',
       copilot_id: '',

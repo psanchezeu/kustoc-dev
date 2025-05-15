@@ -82,10 +82,13 @@ export const getDashboardStats = async (): Promise<DashboardStats> => {
     // Obtener los proyectos más recientes
     // Asumimos que los proyectos tienen una fecha de creación o inicio
     const sortedProjects = [...projects].sort((a: Project, b: Project) => {
-      // Si no existe start_date, usamos una fecha por defecto
-      const dateA = a.start_date ? new Date(a.start_date).getTime() : 0;
-      const dateB = b.start_date ? new Date(b.start_date).getTime() : 0;
-      return dateB - dateA;
+      // Si no existe start_date o created_at, usamos la fecha actual como fallback
+      const getProjectDate = (project: Project) => {
+        if (project.start_date) return new Date(project.start_date).getTime();
+        if (project.created_at) return new Date(project.created_at).getTime();
+        return 0;
+      };
+      return getProjectDate(b) - getProjectDate(a);
     });
     
     // Para cada proyecto, necesitamos obtener el nombre del cliente

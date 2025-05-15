@@ -36,11 +36,10 @@ const getProjectById = async (projectId: string): Promise<Project | null> => {
 /**
  * Crea un nuevo proyecto en el servidor
  */
-const createProject = async (projectData: Omit<Project, 'project_id'>): Promise<Project | null> => {
+const createProject = async (projectData: any): Promise<Project | null> => {
   try {
     // Verificar que todos los campos obligatorios están presentes
-    if (!projectData.name || !projectData.client_id || !projectData.jump_id || !projectData.status || 
-    projectData.contracted_hours === undefined || !projectData.start_date) {
+    if (!projectData.name || !projectData.client_id || !projectData.status) {
       console.error('Faltan campos obligatorios para crear un proyecto:', projectData);
       throw new Error('Faltan campos obligatorios para crear el proyecto');
     }

@@ -20,13 +20,28 @@ export function formatCurrency(amount: number, currency = "USD"): string {
 
 /**
  * Formats a date to a readable string
+ * Handles invalid dates gracefully and returns 'N/A' instead of throwing an error
  */
-export function formatDate(date: string | Date): string {
-  return new Intl.DateTimeFormat("es-ES", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  }).format(new Date(date));
+export function formatDate(date: string | Date | null | undefined): string {
+  if (!date) return 'N/A';
+  
+  try {
+    const dateObj = date instanceof Date ? date : new Date(date);
+    
+    // Check if date is valid
+    if (isNaN(dateObj.getTime())) {
+      return 'N/A';
+    }
+    
+    return new Intl.DateTimeFormat("es-ES", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    }).format(dateObj);
+  } catch (error) {
+    console.warn(`Error formatting date: ${date}`, error);
+    return 'N/A';
+  }
 }
 
 /**
