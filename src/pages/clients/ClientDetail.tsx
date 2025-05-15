@@ -8,8 +8,7 @@ import { getClientById, createClient, updateClient, getClientInteractions, creat
 import { SERVER_CONFIG } from '../../config';
 import { Button } from '../../components/ui/Button';
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '../../components/ui/Card';
-// Importamos useState para manejar las pestañas manualmente
-import { useState } from 'react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/Tabs';
 import { formatDate } from '../../lib/utils';
 
 // Esquema de validación para el formulario de cliente
@@ -47,12 +46,11 @@ const ClientDetail = () => {
   const queryClient = useQueryClient();
   const isNewClient = id === 'new';
   
-  // Estados para controlar la UI - Siempre comenzamos en modo edición
+  // Estados para controlar la UI
   const [isEditing, setIsEditing] = useState(true);
   const [showInteractionForm, setShowInteractionForm] = useState(false);
   const [interactionFile, setInteractionFile] = useState<File | null>(null);
   const [fileErrorMessage, setFileErrorMessage] = useState('');
-  const [activeTab, setActiveTab] = useState('contact'); // Estado para controlar las pestañas
   
   // Advertir al usuario sobre cambios no guardados
   useEffect(() => {
@@ -154,7 +152,6 @@ const ClientDetail = () => {
     mutationFn: createClient,
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['clients'] });
-      // Navegar a la página de detalles del cliente
       setIsEditing(false);
       if (data && data.client_id) {
         navigate(`/clients/${data.client_id}`);
@@ -186,7 +183,6 @@ const ClientDetail = () => {
       const interactionData = {
         interaction_type: data.interaction_type,
         interaction_summary: data.interaction_summary,
-        // Solo incluimos file si no es null
         ...(interactionFile ? { file: interactionFile } : {})
       };
       
@@ -296,28 +292,14 @@ const ClientDetail = () => {
         </CardHeader>
         <CardContent>
           <form id="clientForm" onSubmit={handleSubmit(onSubmitClient)}>
-            {/* Implementación simplificada de pestañas */}
-            <div className="w-full">
-              <div className="grid w-full grid-cols-2 mb-4 inline-flex h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground">
-                <button 
-                  type="button"
-                  className={`inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-all ${activeTab === 'contact' ? 'bg-background text-foreground shadow-sm' : ''}`}
-                  onClick={() => setActiveTab('contact')}
-                >
-                  Datos de Contacto
-                </button>
-                <button 
-                  type="button"
-                  className={`inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-all ${activeTab === 'billing' ? 'bg-background text-foreground shadow-sm' : ''}`}
-                  onClick={() => setActiveTab('billing')}
-                >
-                  Datos de Facturación
-                </button>
-              </div>
+            <Tabs defaultValue="contact" className="w-full">
+              <TabsList className="grid w-full grid-cols-2 mb-4">
+                <TabsTrigger value="contact">Datos de Contacto</TabsTrigger>
+                <TabsTrigger value="billing">Datos de Facturación</TabsTrigger>
+              </TabsList>
               
               {/* Pestaña de Datos de Contacto */}
-              {activeTab === 'contact' && (
-                <div className="p-1">
+              <TabsContent value="contact" className="p-1">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-4">
                     <div>
@@ -468,12 +450,10 @@ const ClientDetail = () => {
                     </div>
                   </div>
                 </div>
-                </div>
-              )}
+              </TabsContent>
               
               {/* Pestaña de Datos de Facturación */}
-              {activeTab === 'billing' && (
-                <div className="p-1">
+              <TabsContent value="billing" className="p-1">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-4">
                     <div>
@@ -547,9 +527,8 @@ const ClientDetail = () => {
                     </div>
                   </div>
                 </div>
-                </div>
-              )}
-            </div>
+              </TabsContent>
+            </Tabs>
 
             <div className="flex justify-end mt-6 space-x-2">
               <Button
