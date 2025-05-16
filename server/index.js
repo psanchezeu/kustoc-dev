@@ -40,21 +40,37 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
-// Detectar entorno de producción
-const isProduction = process.env.NODE_ENV === 'production';
-console.log(`Ambiente: ${isProduction ? 'Producción' : 'Desarrollo'}`);
+// Detectar entorno de producción - Verificamos varias variables para mayor seguridad
+const isProduction = process.env.NODE_ENV === 'production' || 
+                   process.env.ENV === 'production' ||
+                   process.env.ENVIRONMENT === 'production' ||
+                   process.env.IS_PRODUCTION === 'true';
+
+console.log(`Ambiente detectado: ${isProduction ? 'PRODUCCIÓN' : 'Desarrollo'}`);
+console.log('Variables de entorno:', { 
+  NODE_ENV: process.env.NODE_ENV,
+  ENV: process.env.ENV,
+  ENVIRONMENT: process.env.ENVIRONMENT,
+  IS_PRODUCTION: process.env.IS_PRODUCTION
+});
+
+// Forzar modo producción para despliegues (modo seguro)
+if (process.env.FORCE_PRODUCTION === 'true') {
+  console.log('⚠️ MODO PRODUCCIÓN FORZADO ACTIVO');
+  process.env.NODE_ENV = 'production';
+}
 
 // Inicializar la base de datos SQLite
 const dbPath = path.join(__dirname, 'kustoc.db');
 
 // En producción, eliminamos la base de datos existente para iniciar con una limpia
 if (isProduction && fs.existsSync(dbPath)) {
-  console.log('Entorno de producción detectado. Eliminando base de datos existente...');
+  console.log('🧹 Entorno de producción detectado. Eliminando base de datos existente...');
   try {
     fs.unlinkSync(dbPath);
-    console.log('Base de datos eliminada correctamente para iniciar limpia en producción');
+    console.log('✅ Base de datos eliminada correctamente para iniciar limpia en producción');
   } catch (err) {
-    console.error('Error al eliminar la base de datos:', err);
+    console.error('❌ Error al eliminar la base de datos:', err);
   }
 }
 
@@ -175,6 +191,7 @@ function migrateDatabase() {
 
 // Configurar la base de datos con todas las tablas necesarias
 function setupDatabase() {
+  console.log('Iniciando la configuración de la base de datos...');
   db.serialize(() => {
     // Tabla de Clientes
     db.run(`CREATE TABLE IF NOT EXISTS clients (
@@ -383,7 +400,38 @@ function setupDatabase() {
       value TEXT NOT NULL,
       updated_at TEXT NOT NULL
     )`);
-
+    
+    // Si estamos en producción, nos aseguramos de que todas las tablas estén vacías
+    // para evitar datos de prueba en el entorno de producción
+    if (isProduction) {
+      console.log('🧹 Limpiando todas las tablas en entorno de producción...');
+      
+      // Lista de todas las tablas principales que deben limpiarse
+      const tablesToClean = [
+        'invoices',
+        'invoice_items',
+        'projects',
+        'project_copilots',
+        'copilots',
+        'clients',
+        'interactions',
+        'jumps'
+      ];
+      
+      // Vaciar cada tabla
+      tablesToClean.forEach(tableName => {
+        db.run(`DELETE FROM ${tableName}`, [], err => {
+          if (err) {
+            console.error(`❌ Error al limpiar la tabla ${tableName}:`, err.message);
+          } else {
+            console.log(`✅ Tabla ${tableName} limpiada correctamente`);
+          }
+        });
+      });
+      
+      console.log('💾 Base de datos de producción inicializada sin datos de prueba');
+    }
+    
     console.log('Base de datos configurada correctamente');
   });
 }
