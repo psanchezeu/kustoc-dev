@@ -1,0 +1,12 @@
+FROM nginx:alpine
+
+# Copiar los archivos estáticos
+COPY dist/ /usr/share/nginx/html/
+
+# Copiar la configuración de Nginx
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+# Exponer el puerto
+EXPOSE 80
+
+# El comando CMD se hereda de la imagen base de nginx
