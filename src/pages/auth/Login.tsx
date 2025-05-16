@@ -62,7 +62,7 @@ const Login = () => {
     <div className="min-h-screen flex items-center justify-center bg-muted p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <CardTitle className="text-3xl font-bold">Kustoc</CardTitle>
+          <CardTitle className="text-3xl font-bold">Kacum</CardTitle>
           <CardDescription>Inicia sesión para acceder a la plataforma</CardDescription>
         </CardHeader>
         <CardContent>

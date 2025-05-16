@@ -1,5 +1,5 @@
 /**
- * Tipos básicos para la aplicación Kustoc
+ * Tipos básicos para la aplicación Kacum
  */
 
 // Cliente

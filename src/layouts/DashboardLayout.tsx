@@ -40,6 +40,7 @@ const DashboardLayout = () => {
     { path: '/referrals', label: 'Referidos', icon: 'share' },
     { path: '/projects', label: 'Proyectos', icon: 'briefcase' },
     { path: '/copilots', label: 'Copilotos', icon: 'users' },
+    { path: '/settings', label: 'Configuraciones', icon: 'settings' },
   ];
 
   return (
@@ -54,7 +55,7 @@ const DashboardLayout = () => {
           {/* Logo */}
           <div className="flex items-center justify-between h-16 px-4 border-b">
             <Link to="/" className="flex items-center">
-              <span className="text-2xl font-bold text-primary">Kustoc</span>
+              <span className="text-2xl font-bold text-primary">Kacum</span>
             </Link>
             <button 
               className="md:hidden text-gray-500 hover:text-gray-600"
