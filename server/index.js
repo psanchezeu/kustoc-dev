@@ -11,6 +11,9 @@ const multer = require('multer');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// Secreto para los tokens JWT
+const JWT_SECRET = process.env.JWT_SECRET || 'kustoc-secret-key-development';
+
 // Middleware
 app.use(cors());
 app.use(express.json());
@@ -45,6 +48,15 @@ const db = new sqlite3.Database(dbPath, (err) => {
     console.log('Conexión establecida con la base de datos SQLite');
     setupDatabase();
     migrateDatabase();
+    
+    // Ejecutar migraciones de tablas de referencia
+    try {
+      console.log('Ejecutando migraciones de tablas de referencia...');
+      const { runMigrations } = require('./migrations/index');
+      runMigrations();
+    } catch (migrationError) {
+      console.error('Error al ejecutar migraciones de tablas de referencia:', migrationError);
+    }
   }
 });
 
@@ -386,6 +398,104 @@ function generateId(prefix, callback) {
     });
   }
 }
+
+// ----- RUTAS DE AUTENTICACIÓN -----
+
+// Endpoint para login
+app.post('/api/auth/login', (req, res) => {
+  const { email, password } = req.body;
+  
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email y contraseña son obligatorios' });
+  }
+  
+  // Buscar el usuario por email
+  db.get('SELECT * FROM users WHERE email = ? AND active = 1', [email], async (err, user) => {
+    if (err) {
+      console.error('Error al buscar usuario:', err.message);
+      return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+    
+    if (!user) {
+      return res.status(401).json({ error: 'Credenciales inválidas' });
+    }
+    
+    // Comparar la contraseña
+    try {
+      const passwordMatch = await bcrypt.compare(password, user.password);
+      
+      if (!passwordMatch) {
+        return res.status(401).json({ error: 'Credenciales inválidas' });
+      }
+      
+      // Generar token JWT
+      const token = jwt.sign(
+        { userId: user.user_id, email: user.email, role: user.role },
+        JWT_SECRET,
+        { expiresIn: '24h' }
+      );
+      
+      // Actualizar último login
+      db.run(
+        'UPDATE users SET last_login = ? WHERE user_id = ?',
+        [new Date().toISOString(), user.user_id]
+      );
+      
+      // Devolver datos del usuario y token
+      return res.json({
+        token,
+        user: {
+          user_id: user.user_id,
+          name: user.name,
+          email: user.email,
+          role: user.role
+        }
+      });
+    } catch (bcryptError) {
+      console.error('Error al verificar contraseña:', bcryptError);
+      return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+  });
+});
+
+// Endpoint para verificar token
+app.post('/api/auth/verify', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Token no proporcionado' });
+  }
+  
+  const token = authHeader.split(' ')[1];
+  
+  try {
+    // Verificar y decodificar el token
+    const decoded = jwt.verify(token, JWT_SECRET);
+    
+    // Buscar el usuario por ID
+    db.get('SELECT * FROM users WHERE user_id = ? AND active = 1', [decoded.userId], (err, user) => {
+      if (err) {
+        console.error('Error al verificar usuario:', err.message);
+        return res.status(500).json({ error: 'Error interno del servidor' });
+      }
+      
+      if (!user) {
+        return res.status(401).json({ error: 'Usuario no encontrado o inactivo' });
+      }
+      
+      // Devolver datos del usuario
+      return res.json({
+        user_id: user.user_id,
+        name: user.name,
+        email: user.email,
+        role: user.role
+      });
+    });
+  } catch (jwtError) {
+    console.error('Error al verificar token:', jwtError);
+    return res.status(401).json({ error: 'Token inválido o expirado' });
+  }
+});
 
 // ----- RUTAS DE API -----
 
@@ -1381,6 +1491,63 @@ app.delete('/api/projects/:projectId/copilots/:copilotId', (req, res) => {
       );
     }
   );
+});
+
+// ----- Rutas para Datos de Referencia -----
+
+// Sectores
+app.get('/api/reference/sectors', (req, res) => {
+  db.all('SELECT * FROM sectors WHERE active = 1 ORDER BY name', [], (err, rows) => {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.json(rows);
+  });
+});
+
+// Estados de cliente
+app.get('/api/reference/client-statuses', (req, res) => {
+  db.all('SELECT * FROM client_statuses WHERE active = 1 ORDER BY name', [], (err, rows) => {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.json(rows);
+  });
+});
+
+// Estados de proyecto
+app.get('/api/reference/project-statuses', (req, res) => {
+  db.all('SELECT * FROM project_statuses WHERE active = 1 ORDER BY name', [], (err, rows) => {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.json(rows);
+  });
+});
+
+// Estados de jump
+app.get('/api/reference/jump-statuses', (req, res) => {
+  db.all('SELECT * FROM jump_statuses WHERE active = 1 ORDER BY name', [], (err, rows) => {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.json(rows);
+  });
+});
+
+// Tipos de interacción
+app.get('/api/reference/interaction-types', (req, res) => {
+  db.all('SELECT * FROM interaction_types WHERE active = 1 ORDER BY name', [], (err, rows) => {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.json(rows);
+  });
 });
 
 // --- Más rutas para otros módulos ---

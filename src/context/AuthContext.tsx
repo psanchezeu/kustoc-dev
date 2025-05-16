@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { SERVER_CONFIG } from '../config';
 
 interface User {
   id: string;
@@ -33,14 +34,27 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       try {
         const token = localStorage.getItem('authToken');
         if (token) {
-          // En un caso real, verificaríamos el token con el servidor
-          // Por ahora, simulamos un usuario autenticado para el MVP
-          setUser({
-            id: 'admin-id',
-            name: 'Administrador',
-            email: 'admin@kustoc.com',
-            role: 'admin'
+          // Verificar el token con el servidor
+          const response = await fetch(`${SERVER_CONFIG.BASE_URL}/api/auth/verify`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            }
           });
+          
+          if (response.ok) {
+            const userData = await response.json();
+            setUser({
+              id: userData.user_id,
+              name: userData.name,
+              email: userData.email,
+              role: userData.role
+            });
+          } else {
+            // Token inválido, borrar de localStorage
+            localStorage.removeItem('authToken');
+          }
         }
       } catch (error) {
         console.error('Error al verificar la sesión del usuario:', error);
@@ -56,21 +70,31 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   const login = async (email: string, password: string): Promise<boolean> => {
     setLoading(true);
     try {
-      // En un entorno real, esta sería una llamada a la API
-      // Para el MVP, simplemente simulamos un inicio de sesión exitoso
-      if (email === 'admin@kustoc.com' && password === 'admin') {
-        const mockUser = {
-          id: 'admin-id',
-          name: 'Administrador',
-          email: 'admin@kustoc.com',
-          role: 'admin'
-        };
-        
-        setUser(mockUser);
-        localStorage.setItem('authToken', 'mock-jwt-token');
-        return true;
+      // Realizar la autenticación a través de la API
+      const response = await fetch(`${SERVER_CONFIG.BASE_URL}/api/auth/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ email, password })
+      });
+      
+      if (!response.ok) {
+        throw new Error('Credenciales inválidas');
       }
-      return false;
+      
+      const data = await response.json();
+      
+      // Guardar token y datos del usuario
+      localStorage.setItem('authToken', data.token);
+      setUser({
+        id: data.user.user_id,
+        name: data.user.name,
+        email: data.user.email,
+        role: data.user.role
+      });
+      
+      return true;
     } catch (error) {
       console.error('Error al iniciar sesión:', error);
       return false;

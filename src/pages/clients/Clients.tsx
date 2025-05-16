@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { getClients, Client } from '../../api/clientsApi';
+import { getSectors, getClientStatuses, ReferenceData } from '../../api/referenceDataApi';
 import { Button } from '../../components/ui/Button';
 import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
 import { formatDate } from '../../lib/utils';
@@ -14,34 +15,48 @@ const Clients = () => {
   const [sectorFilter, setSectorFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
 
+  // Consultar los clientes
   const { data: clients = [], isLoading, error } = useQuery({
     queryKey: ['clients'],
     queryFn: getClients
   });
-
+  
+  // Consultar los sectores desde la API
+  const { data: sectorsData = [] } = useQuery({
+    queryKey: ['sectors'],
+    queryFn: getSectors
+  });
+  
+  // Consultar los estados de cliente desde la API
+  const { data: statusesData = [] } = useQuery({
+    queryKey: ['client-statuses'],
+    queryFn: getClientStatuses
+  });
+  
+  // Formatear los sectores para el selector
   const sectors = [
     { value: '', label: 'Todos los sectores' },
-    { value: 'Talleres Mecánicos', label: 'Talleres Mecánicos' },
-    { value: 'Clínicas', label: 'Clínicas' },
-    { value: 'Asesorías', label: 'Asesorías' },
-    { value: 'Restaurantes', label: 'Restaurantes' },
-    { value: 'Otros', label: 'Otros' }
+    ...sectorsData.map((sector: ReferenceData) => ({
+      value: sector.name,
+      label: sector.name
+    }))
   ];
-
+  
+  // Formatear los estados para el selector
   const statuses = [
     { value: '', label: 'Todos los estados' },
-    { value: 'Prospecto', label: 'Prospecto' },
-    { value: 'Cliente Activo', label: 'Cliente Activo' },
-    { value: 'Inactivo', label: 'Inactivo' },
-    { value: 'En Negociación', label: 'En Negociación' }
+    ...statusesData.map((status: ReferenceData) => ({
+      value: status.name,
+      label: status.name
+    }))
   ];
 
   // Filtrar clientes según los criterios
   const filteredClients = clients.filter(client => {
     const matchesSearch = 
-      client.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      client.company.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      client.email.toLowerCase().includes(searchTerm.toLowerCase());
+      client.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      client.company?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      client.email?.toLowerCase().includes(searchTerm.toLowerCase());
     
     const matchesSector = sectorFilter ? client.sector === sectorFilter : true;
     const matchesStatus = statusFilter ? client.status === statusFilter : true;
