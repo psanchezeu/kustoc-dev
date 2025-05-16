@@ -61,7 +61,7 @@ if (process.env.FORCE_PRODUCTION === 'true') {
 }
 
 // Inicializar la base de datos SQLite
-const dbPath = path.join(__dirname, 'kustoc.db');
+const dbPath = path.join(__dirname, 'kacum.db');
 
 // En producción, eliminamos la base de datos existente para iniciar con una limpia
 if (isProduction && fs.existsSync(dbPath)) {
@@ -930,19 +930,132 @@ app.get('/api/jumps/:jumpId/clients', (req, res) => {
   });
 });
 
-// ----- Rutas para Copilotos -----
+// ----- Rutas para Proyectos -----
 
-// Obtener todos los copilotos
-app.get('/api/copilots', (req, res) => {
-  db.all('SELECT * FROM copilots ORDER BY name', [], (err, rows) => {
+// Obtener todos los proyectos
+app.get('/api/projects', (req, res) => {
+  db.all('SELECT * FROM projects ORDER BY start_date DESC', [], (err, rows) => {
     if (err) {
-      console.error('Error al obtener copilotos:', err.message);
+      console.error('Error al obtener proyectos:', err.message);
       res.status(500).json({ error: err.message });
       return;
     }
-    res.json(rows);
+    res.json(rows || []);
   });
 });
+
+// Obtener un proyecto específico
+app.get('/api/projects/:id', (req, res) => {
+  db.get('SELECT * FROM projects WHERE project_id = ?', [req.params.id], (err, project) => {
+    if (err) {
+      console.error('Error al obtener proyecto:', err.message);
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    if (!project) {
+      res.status(404).json({ error: 'Proyecto no encontrado' });
+      return;
+    }
+    res.json(project);
+  });
+});
+
+// Crear un nuevo proyecto
+app.post('/api/projects', (req, res) => {
+  const { 
+    name, client_id, jump_id, start_date, estimated_end_date, status,
+    contracted_hours, consumed_hours, description, copilot_id 
+  } = req.body;
+
+  // Validar campos requeridos
+  if (!name || !client_id || !status || !start_date) {
+    res.status(400).json({ error: 'Faltan campos obligatorios: name, client_id, status y start_date son requeridos' });
+    return;
+  }
+
+  // Generar ID para el proyecto
+  generateId('PRJ', (project_id) => {
+    if (!project_id) {
+      res.status(500).json({ error: 'Error al generar ID del proyecto' });
+      return;
+    }
+    
+    console.log('Insertando proyecto con ID:', project_id);
+    
+    // Asegurar que los valores opcionales tienen valores por defecto apropiados
+    const defaultDescription = description || '';
+    const defaultConsumedHours = consumed_hours || 0;
+    const defaultEstimatedEndDate = estimated_end_date || null;
+    
+    // Consulta SQL con todos los campos incluyendo description y copilot_id
+    db.run(`
+      INSERT INTO projects (
+        project_id, name, client_id, jump_id, start_date, estimated_end_date,
+        status, contracted_hours, consumed_hours, description, copilot_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+      project_id, name, client_id, jump_id, start_date, defaultEstimatedEndDate,
+      status, contracted_hours, defaultConsumedHours, defaultDescription, copilot_id
+    ], function(err) {
+      if (err) {
+        console.error('Error al insertar proyecto:', err.message);
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      
+      console.log('Proyecto creado exitosamente con ID:', project_id);
+      
+      res.status(201).json({
+        project_id, name, client_id, jump_id, start_date, estimated_end_date: defaultEstimatedEndDate,
+        status, contracted_hours, consumed_hours: defaultConsumedHours, 
+        description: defaultDescription, copilot_id
+      });
+    });
+  });
+});
+
+// Actualizar un proyecto existente
+app.put('/api/projects/:id', (req, res) => {
+  const { 
+    name, client_id, jump_id, start_date, estimated_end_date, status,
+    contracted_hours, consumed_hours, description, copilot_id 
+  } = req.body;
+
+  // Asegurar que los valores opcionales tienen valores por defecto apropiados
+  const defaultDescription = description || '';
+  const defaultConsumedHours = consumed_hours || 0;
+  
+  db.run(`
+    UPDATE projects SET
+      name = ?, client_id = ?, jump_id = ?, start_date = ?, estimated_end_date = ?,
+      status = ?, contracted_hours = ?, consumed_hours = ?, description = ?, copilot_id = ?
+    WHERE project_id = ?
+  `, [
+    name, client_id, jump_id, start_date, estimated_end_date,
+    status, contracted_hours, defaultConsumedHours, defaultDescription, copilot_id,
+    req.params.id
+  ], function(err) {
+    if (err) {
+      console.error('Error al actualizar proyecto:', err.message);
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    if (this.changes === 0) {
+      res.status(404).json({ error: 'Proyecto no encontrado' });
+      return;
+    }
+    res.json({ 
+      project_id: req.params.id, name, client_id, jump_id, start_date, estimated_end_date,
+      status, contracted_hours, consumed_hours: defaultConsumedHours, 
+      description: defaultDescription, copilot_id 
+    });
+  });
+});
+
+// ----- Rutas para Copilotos (Continuación) -----
+
+// Nota: El endpoint principal GET /api/copilots está definido en la sección anterior
+// con soporte para filtrado por disponibilidad
 
 // Obtener un copiloto específico
 app.get('/api/copilots/:id', (req, res) => {
@@ -1023,14 +1136,30 @@ app.post('/api/copilots', (req, res) => {
       }
 
       console.log('Insertando copiloto con ID:', copilot_id);
-      console.log('Datos a insertar:', { copilot_id, name, email, bio: bio || '', specialty: specialtyJSON, availability, hourly_rate, role: roleFinal, created_at });
+      
+      // Asegurar que tanto status como availability tienen valores válidos
+      // El campo status es obligatorio (NOT NULL) en la BD, así que debemos asegurarnos de asignar un valor
+      const status = availability || 'available'; // Usamos availability como valor para status
+      
+      console.log('Datos a insertar:', { 
+        copilot_id, 
+        name, 
+        email, 
+        bio: bio || '', 
+        specialty: specialtyJSON, 
+        status,             // Campo obligatorio en la BD 
+        availability,       // Campo opcional que se usa en frontend
+        hourly_rate, 
+        role: roleFinal, 
+        created_at 
+      });
 
       db.run(`
         INSERT INTO copilots (
-          copilot_id, name, email, bio, specialty, availability, hourly_rate, role, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          copilot_id, name, email, bio, specialty, status, availability, hourly_rate, role, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `, [
-        copilot_id, name, email, bio || '', specialtyJSON, availability, hourly_rate, roleFinal, created_at
+        copilot_id, name, email, bio || '', specialtyJSON, status, availability, hourly_rate, roleFinal, created_at
       ], function(err) {
         if (err) {
           console.error('Error al insertar copiloto:', err.message);

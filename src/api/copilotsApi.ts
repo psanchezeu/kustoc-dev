@@ -100,11 +100,31 @@ const deleteCopilot = async (copilotId: string): Promise<boolean> => {
  */
 const getAvailableCopilots = async (): Promise<Copilot[]> => {
   try {
-    const response = await fetch(`${SERVER_CONFIG.BASE_URL}/api/copilots?status=available`);
+    // Usando una ruta relativa para evitar problemas con el proxy de Vite
+    const url = '/api/copilots?availability=available';
+    console.log('Solicitando copilotos desde copilotsApi:', url);
+    
+    const response = await fetch(url, {
+      headers: {
+        'Accept': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest' // Ayuda a prevenir respuestas HTML
+      }
+    });
+    
     if (!response.ok) {
-      throw new Error('Error al obtener copilotos disponibles');
+      console.error('Respuesta no exitosa:', response.status, response.statusText);
+      throw new Error(`Error al obtener copilotos disponibles: ${response.status}`);
     }
-    return await response.json();
+    
+    const text = await response.text();
+    try {
+      // Intentamos parsear el texto como JSON de forma segura
+      return JSON.parse(text);
+    } catch (parseError) {
+      console.error('Error al parsear respuesta como JSON:', parseError);
+      console.error('Respuesta recibida:', text.substring(0, 100) + '...');
+      return [];
+    }
   } catch (error) {
     console.error('Error en getAvailableCopilots:', error);
     return [];
