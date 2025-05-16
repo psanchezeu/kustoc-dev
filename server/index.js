@@ -40,15 +40,36 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
+// Detectar entorno de producción
+const isProduction = process.env.NODE_ENV === 'production';
+console.log(`Ambiente: ${isProduction ? 'Producción' : 'Desarrollo'}`);
+
 // Inicializar la base de datos SQLite
 const dbPath = path.join(__dirname, 'kustoc.db');
+
+// En producción, eliminamos la base de datos existente para iniciar con una limpia
+if (isProduction && fs.existsSync(dbPath)) {
+  console.log('Entorno de producción detectado. Eliminando base de datos existente...');
+  try {
+    fs.unlinkSync(dbPath);
+    console.log('Base de datos eliminada correctamente para iniciar limpia en producción');
+  } catch (err) {
+    console.error('Error al eliminar la base de datos:', err);
+  }
+}
+
 const db = new sqlite3.Database(dbPath, (err) => {
   if (err) {
     console.error('Error al conectar a la base de datos SQLite:', err.message);
   } else {
     console.log('Conexión establecida con la base de datos SQLite');
     setupDatabase();
-    migrateDatabase();
+    if (!isProduction) {
+      // Solo ejecutamos migraciones en desarrollo
+      migrateDatabase();
+    } else {
+      console.log('Omitiendo migraciones en entorno de producción');
+    }
   }
 });
 
