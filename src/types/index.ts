@@ -42,16 +42,22 @@ export interface Jump {
 export interface Invoice {
   invoice_id: string;
   client_id: string;
-  jump_id?: string;
-  number: string;
-  amount: number;
-  tax_percent: number;
+  project_id?: string;      // Antes jump_id
+  tax: number;              // Antes tax_percent
+  total: number;            // Antes amount
   status: 'draft' | 'sent' | 'paid' | 'overdue' | 'cancelled';
   issue_date: string;
   due_date: string;
   paid_date?: string;
   notes?: string;
-  created_at: string;
+  billing_name?: string;
+  billing_tax_id?: string;
+  billing_address?: string;
+  billing_email?: string;
+  payment_method?: string;
+  payment_status?: string;
+  payment_reference?: string;
+  created_at?: string;
 }
 
 // Clave API

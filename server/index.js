@@ -1,11 +1,15 @@
 const express = require('express');
 const cors = require('cors');
 const sqlite3 = require('sqlite3').verbose();
+const bodyParser = require('body-parser');
 const path = require('path');
 const fs = require('fs');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const multer = require('multer');
+const { v4: uuidv4 } = require('uuid');
+const handlebars = require('handlebars');
+const puppeteer = require('puppeteer');
 
 // Inicializar la aplicación Express
 const app = express();
@@ -51,6 +55,30 @@ const db = new sqlite3.Database(dbPath, (err) => {
 // Función para realizar migraciones de la base de datos
 function migrateDatabase() {
   console.log('Iniciando migraciones de la base de datos...');
+  
+  // Verificar si la tabla invoices tiene la columna due_date y añadirla si no existe
+  console.log('Verificando estructura de la tabla invoices...');
+  db.all("PRAGMA table_info(invoices)", [], (err, columns) => {
+    if (err) {
+      console.error('Error al verificar estructura de la tabla invoices:', err.message);
+    } else {
+      const columnNames = columns.map(col => col.name);
+      console.log('Columnas actuales en tabla invoices:', columnNames.join(', '));
+      
+      if (!columnNames.includes('due_date')) {
+        console.log('Añadiendo columna due_date a la tabla invoices...');
+        db.run('ALTER TABLE invoices ADD COLUMN due_date TEXT', (alterErr) => {
+          if (alterErr) {
+            console.error('Error al añadir columna due_date:', alterErr.message);
+          } else {
+            console.log('Columna due_date añadida correctamente a la tabla invoices');
+          }
+        });
+      } else {
+        console.log('La columna due_date ya existe en la tabla invoices');
+      }
+    }
+  });
   
   // Comprobar y actualizar la estructura de la tabla copilots si es necesario
   db.get("PRAGMA table_info(copilots)", [], (err, rows) => {
@@ -183,6 +211,7 @@ function setupDatabase() {
       invoice_id TEXT PRIMARY KEY,
       client_id TEXT NOT NULL,
       issue_date TEXT NOT NULL,
+      due_date TEXT,
       tax REAL NOT NULL,
       total REAL NOT NULL,
       billing_name TEXT NOT NULL,
@@ -326,6 +355,13 @@ function setupDatabase() {
       FOREIGN KEY (project_id) REFERENCES projects (project_id),
       FOREIGN KEY (referral_id) REFERENCES referrals (referral_id)
     )`);
+    
+    // Tabla de Configuraciones del Sistema
+    db.run(`CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`);
 
     console.log('Base de datos configurada correctamente');
   });
@@ -388,6 +424,27 @@ function generateId(prefix, callback) {
 }
 
 // ----- RUTAS DE API -----
+
+// ----- Rutas para Copilotos -----
+app.get('/api/copilots', (req, res) => {
+  const availability = req.query.availability;
+  let query = 'SELECT * FROM copilots';
+  
+  if (availability === 'available') {
+    query += " WHERE status = 'available'";
+  }
+  
+  query += ' ORDER BY name';
+  
+  db.all(query, [], (err, rows) => {
+    if (err) {
+      console.error('Error al obtener copilotos:', err.message);
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.json(rows || []);
+  });
+});
 
 // ----- Rutas para Clientes -----
 app.get('/api/clients', (req, res) => {
@@ -1379,6 +1436,893 @@ app.delete('/api/projects/:projectId/copilots/:copilotId', (req, res) => {
           res.json({ success: true });
         }
       );
+    }
+  );
+});
+
+// --- Gestión de Facturas ---
+
+// Obtener todas las facturas
+app.get('/api/invoices', (req, res) => {
+  db.all('SELECT i.*, c.name as client_name FROM invoices i LEFT JOIN clients c ON i.client_id = c.client_id ORDER BY i.issue_date DESC', [], (err, rows) => {
+    if (err) {
+      console.error('Error al obtener facturas:', err.message);
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.json(rows);
+  });
+});
+
+// Obtener una factura específica por ID
+app.get('/api/invoices/:id', (req, res) => {
+  const { id } = req.params;
+  
+  db.get('SELECT i.*, c.name as client_name FROM invoices i LEFT JOIN clients c ON i.client_id = c.client_id WHERE i.invoice_id = ?', [id], (err, invoice) => {
+    if (err) {
+      console.error(`Error al obtener factura ${id}:`, err.message);
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    
+    if (!invoice) {
+      res.status(404).json({ error: 'Factura no encontrada' });
+      return;
+    }
+    
+    // Obtener los items de la factura
+    db.all('SELECT * FROM invoice_items WHERE invoice_id = ?', [id], (err, items) => {
+      if (err) {
+        console.error(`Error al obtener items de factura ${id}:`, err.message);
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      
+      invoice.items = items;
+      res.json(invoice);
+    });
+  });
+});
+
+// Generar PDF de una factura
+app.get('/api/invoices/:id/pdf', async (req, res) => {
+  const { id } = req.params;
+  
+  try {
+    // 1. Obtener la factura con todos sus datos
+    const getInvoice = () => {
+      return new Promise((resolve, reject) => {
+        db.get('SELECT i.*, c.* FROM invoices i LEFT JOIN clients c ON i.client_id = c.client_id WHERE i.invoice_id = ?', [id], (err, invoice) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+          
+          if (!invoice) {
+            reject(new Error('Factura no encontrada'));
+            return;
+          }
+          
+          // Obtener los items de la factura
+          db.all('SELECT * FROM invoice_items WHERE invoice_id = ?', [id], (err, items) => {
+            if (err) {
+              reject(err);
+              return;
+            }
+            
+            invoice.items = items;
+            resolve(invoice);
+          });
+        });
+      });
+    };
+    
+    // 2. Obtener las configuraciones del sistema
+    const getSettings = () => {
+      return new Promise((resolve, reject) => {
+        db.get('SELECT * FROM settings WHERE id = 1', [], (err, row) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+          
+          let settings = defaultSettings;
+          
+          if (row && row.settings) {
+            try {
+              settings = JSON.parse(row.settings);
+            } catch (e) {
+              console.error('Error al parsear configuraciones:', e);
+              // Usar valores predeterminados
+            }
+          }
+          
+          resolve(settings);
+        });
+      });
+    };
+    
+    // Obtener los datos necesarios
+    const [invoice, settings] = await Promise.all([getInvoice(), getSettings()]);
+    
+    // 3. Preparar los datos para la plantilla
+    const invoiceDate = new Date(invoice.issue_date);
+    const dueDate = new Date(invoice.due_date);
+    
+    // Calcular subtotal y totales
+    let subtotal = 0;
+    invoice.items.forEach(item => {
+      subtotal += item.quantity * item.unit_price;
+    });
+    
+    const taxAmount = subtotal * (invoice.tax / 100);
+    
+    const templateData = {
+      invoice_number: `${settings.invoices.prefix}${invoice.invoice_number}${settings.invoices.suffix}`,
+      invoice_date: invoiceDate.toLocaleDateString(),
+      due_date: dueDate.toLocaleDateString(),
+      company_name: settings.company.name,
+      company_address: settings.company.address,
+      company_tax_id: settings.company.taxId,
+      company_email: settings.company.email,
+      company_phone: settings.company.phone,
+      client_name: invoice.name,
+      client_address: invoice.address || '',
+      client_tax_id: invoice.tax_id || '',
+      client_email: invoice.email || '',
+      items: invoice.items.map(item => ({
+        description: item.description,
+        quantity: item.quantity,
+        unit_price: item.unit_price.toFixed(2),
+        total: (item.quantity * item.unit_price).toFixed(2)
+      })),
+      subtotal: subtotal.toFixed(2),
+      tax_percent: invoice.tax,
+      tax_amount: taxAmount.toFixed(2),
+      total: invoice.total.toFixed(2),
+      is_paid: invoice.status === 'paid',
+      footer_text: settings.invoices.footer_text
+    };
+    
+    // 4. Seleccionar la plantilla a utilizar
+    let template;
+    // Usar la plantilla predeterminada o la primera disponible
+    const defaultTemplateId = settings.invoices.default_template;
+    const templates = settings.invoices.templates;
+    
+    if (templates && templates.length > 0) {
+      template = templates.find(t => t.id === defaultTemplateId) || templates[0];
+    } else {
+      throw new Error('No hay plantillas de factura disponibles');
+    }
+    
+    // 5. Compilar la plantilla con los datos
+    const compiledTemplate = handlebars.compile(template.content);
+    const html = compiledTemplate(templateData);
+    
+    // 6. Generar el PDF usando puppeteer
+    const browser = await puppeteer.launch({ headless: true });
+    const page = await browser.newPage();
+    await page.setContent(html, { waitUntil: 'networkidle0' });
+    
+    // Generar el PDF
+    const pdfBuffer = await page.pdf({
+      format: 'A4',
+      printBackground: true,
+      margin: { top: '1cm', right: '1cm', bottom: '1cm', left: '1cm' }
+    });
+    
+    await browser.close();
+    
+    // 7. Enviar el PDF como respuesta
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="factura-${invoice.invoice_number}.pdf"`);
+    res.send(pdfBuffer);
+    
+  } catch (error) {
+    console.error('Error al generar PDF de factura:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Crear una nueva factura
+app.post('/api/invoices', (req, res) => {
+  // ...
+  const { 
+    client_id, project_id, issue_date, due_date, tax, total, 
+    billing_name, billing_tax_id, billing_address, billing_email,
+    payment_method, payment_status, status, items 
+  } = req.body;
+  
+  // Validar campos obligatorios
+  if (!client_id || !issue_date || !billing_name || !billing_tax_id || !tax || !total || !status || !items || !Array.isArray(items)) {
+    console.error('Faltan campos obligatorios al crear factura:', req.body);
+    res.status(400).json({ error: 'Faltan campos obligatorios' });
+    return;
+  }
+  
+  // Generar ID único para la factura
+  const generateInvoiceId = (callback) => {
+    // Formato: INV001, INV002, etc.
+    db.get("SELECT MAX(CAST(SUBSTR(invoice_id, 4) AS INTEGER)) as max_id FROM invoices WHERE invoice_id LIKE 'INV%'", [], (err, row) => {
+      let nextId = 1;
+      if (!err && row && row.max_id) {
+        nextId = row.max_id + 1;
+      }
+      callback(`INV${nextId.toString().padStart(3, '0')}`);
+    });
+  };
+  
+  generateInvoiceId((invoice_id) => {
+    const now = new Date().toISOString();
+    
+    // Comenzar una transacción
+    db.serialize(() => {
+      db.run('BEGIN TRANSACTION');
+      
+      // Insertar la factura
+      db.run(
+        `INSERT INTO invoices (
+          invoice_id, client_id, issue_date, due_date, tax, total, 
+          billing_name, billing_tax_id, billing_address, billing_email,
+          payment_method, payment_status, status, project_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          invoice_id, client_id, issue_date, due_date || null, tax, total,
+          billing_name, billing_tax_id, billing_address || '', billing_email || '',
+          payment_method || '', payment_status || 'pending', status, project_id || null
+        ],
+        function(err) {
+          if (err) {
+            db.run('ROLLBACK');
+            console.error('Error al crear factura:', err.message);
+            res.status(500).json({ error: err.message });
+            return;
+          }
+          
+          // Insertar los items de la factura
+          let itemsInserted = 0;
+          const totalItems = items.length;
+          
+          items.forEach(item => {
+            db.run(
+              'INSERT INTO invoice_items (invoice_id, item_type, description, quantity, unit_price) VALUES (?, ?, ?, ?, ?)',
+              [invoice_id, item.item_type, item.description, item.quantity, item.unit_price],
+              (itemErr) => {
+                if (itemErr) {
+                  console.error('Error al insertar item de factura:', itemErr.message);
+                  // Continuamos de todos modos para insertar todos los posibles items
+                }
+                
+                itemsInserted++;
+                
+                // Si ya procesamos todos los items, respondemos
+                if (itemsInserted === totalItems) {
+                  db.run('COMMIT');
+                  
+                  // Devolver la factura creada con sus items
+                  res.status(201).json({
+                    invoice_id,
+                    client_id,
+                    project_id,
+                    issue_date,
+                    due_date,
+                    tax,
+                    total,
+                    status,
+                    items,
+                    created_at: now
+                  });
+                }
+              }
+            );
+          });
+          
+          // Si no hay items, completamos la transacción
+          if (totalItems === 0) {
+            db.run('COMMIT');
+            res.status(201).json({
+              invoice_id,
+              client_id,
+              project_id,
+              issue_date,
+              due_date,
+              tax,
+              total,
+              status,
+              items: [],
+              created_at: now
+            });
+          }
+        }
+      );
+    });
+  });
+});
+
+// Actualizar una factura existente
+app.put('/api/invoices/:id', (req, res) => {
+  const { id } = req.params;
+  const { 
+    issue_date, due_date, tax, total, billing_name, billing_tax_id, 
+    billing_address, billing_email, payment_method, payment_status, 
+    payment_reference, status, project_id, items 
+  } = req.body;
+  
+  // Validar campos obligatorios
+  if (!issue_date || !billing_name || !billing_tax_id || !tax || !total || !status) {
+    res.status(400).json({ error: 'Faltan campos obligatorios' });
+    return;
+  }
+  
+  // Comenzar transacción
+  db.serialize(() => {
+    db.run('BEGIN TRANSACTION');
+    
+    // Actualizar la factura
+    db.run(
+      `UPDATE invoices SET 
+        issue_date = ?, due_date = ?, tax = ?, total = ?, 
+        billing_name = ?, billing_tax_id = ?, billing_address = ?, 
+        billing_email = ?, payment_method = ?, payment_status = ?, 
+        payment_reference = ?, status = ?, project_id = ? 
+      WHERE invoice_id = ?`,
+      [
+        issue_date, due_date || null, tax, total,
+        billing_name, billing_tax_id, billing_address || '',
+        billing_email || '', payment_method || '', payment_status || 'pending',
+        payment_reference || '', status, project_id || null, id
+      ],
+      function(err) {
+        if (err) {
+          db.run('ROLLBACK');
+          console.error(`Error al actualizar factura ${id}:`, err.message);
+          res.status(500).json({ error: err.message });
+          return;
+        }
+        
+        if (this.changes === 0) {
+          db.run('ROLLBACK');
+          res.status(404).json({ error: 'Factura no encontrada' });
+          return;
+        }
+        
+        // Si hay items para actualizar
+        if (items && Array.isArray(items)) {
+          // Eliminar los items actuales
+          db.run('DELETE FROM invoice_items WHERE invoice_id = ?', [id], (deleteErr) => {
+            if (deleteErr) {
+              db.run('ROLLBACK');
+              console.error(`Error al eliminar items de factura ${id}:`, deleteErr.message);
+              res.status(500).json({ error: deleteErr.message });
+              return;
+            }
+            
+            // Insertar los nuevos items
+            let itemsInserted = 0;
+            const totalItems = items.length;
+            
+            if (totalItems === 0) {
+              db.run('COMMIT');
+              res.json({ invoice_id: id, ...req.body });
+              return;
+            }
+            
+            items.forEach(item => {
+              db.run(
+                'INSERT INTO invoice_items (invoice_id, item_type, description, quantity, unit_price) VALUES (?, ?, ?, ?, ?)',
+                [id, item.item_type, item.description, item.quantity, item.unit_price],
+                (itemErr) => {
+                  if (itemErr) {
+                    console.error(`Error al insertar item para factura ${id}:`, itemErr.message);
+                    // Continuamos de todos modos
+                  }
+                  
+                  itemsInserted++;
+                  
+                  if (itemsInserted === totalItems) {
+                    db.run('COMMIT');
+                    res.json({ invoice_id: id, ...req.body });
+                  }
+                }
+              );
+            });
+          });
+        } else {
+          db.run('COMMIT');
+          res.json({ invoice_id: id, ...req.body });
+        }
+      }
+    );
+  });
+});
+
+// Cambiar el estado de una factura
+app.patch('/api/invoices/:id/status', (req, res) => {
+  const { id } = req.params;
+  const { status, payment_status, payment_date, payment_reference } = req.body;
+  
+  if (!status) {
+    res.status(400).json({ error: 'Se requiere un estado' });
+    return;
+  }
+  
+  const updateFields = [];
+  const updateValues = [];
+  
+  updateFields.push('status = ?');
+  updateValues.push(status);
+  
+  if (payment_status) {
+    updateFields.push('payment_status = ?');
+    updateValues.push(payment_status);
+  }
+  
+  if (payment_date) {
+    updateFields.push('payment_date = ?');
+    updateValues.push(payment_date);
+  }
+  
+  if (payment_reference) {
+    updateFields.push('payment_reference = ?');
+    updateValues.push(payment_reference);
+  }
+  
+  updateValues.push(id);
+  
+  db.run(
+    `UPDATE invoices SET ${updateFields.join(', ')} WHERE invoice_id = ?`,
+    updateValues,
+    function(err) {
+      if (err) {
+        console.error(`Error al actualizar estado de factura ${id}:`, err.message);
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      
+      if (this.changes === 0) {
+        res.status(404).json({ error: 'Factura no encontrada' });
+        return;
+      }
+      
+      res.json({ invoice_id: id, status, payment_status, payment_date, payment_reference });
+    }
+  );
+});
+
+// Eliminar una factura
+app.delete('/api/invoices/:id', (req, res) => {
+  const { id } = req.params;
+  
+  db.serialize(() => {
+    db.run('BEGIN TRANSACTION');
+    
+    // Primero eliminar los items de la factura
+    db.run('DELETE FROM invoice_items WHERE invoice_id = ?', [id], (itemsErr) => {
+      if (itemsErr) {
+        db.run('ROLLBACK');
+        console.error(`Error al eliminar items de factura ${id}:`, itemsErr.message);
+        res.status(500).json({ error: itemsErr.message });
+        return;
+      }
+      
+      // Luego eliminar la factura
+      db.run('DELETE FROM invoices WHERE invoice_id = ?', [id], function(err) {
+        if (err) {
+          db.run('ROLLBACK');
+          console.error(`Error al eliminar factura ${id}:`, err.message);
+          res.status(500).json({ error: err.message });
+          return;
+        }
+        
+        if (this.changes === 0) {
+          db.run('ROLLBACK');
+          res.status(404).json({ error: 'Factura no encontrada' });
+          return;
+        }
+        
+        db.run('COMMIT');
+        res.status(200).json({ success: true, message: `Factura ${id} eliminada correctamente` });
+      });
+    });
+  });
+});
+
+// Generar PDF de una factura (devuelve la URL del PDF generado)
+app.get('/api/invoices/:id/pdf', (req, res) => {
+  const { id } = req.params;
+  const { template_id } = req.query;
+  
+  // Obtener factura con todos sus detalles
+  db.get(
+    `SELECT i.*, c.name as client_name, c.company as client_company, c.tax_id as client_tax_id, 
+            c.address as client_address, c.email as client_email 
+     FROM invoices i 
+     LEFT JOIN clients c ON i.client_id = c.client_id 
+     WHERE i.invoice_id = ?`, 
+    [id], 
+    (err, invoice) => {
+      if (err) {
+        console.error(`Error al obtener factura ${id}:`, err.message);
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      
+      if (!invoice) {
+        res.status(404).json({ error: 'Factura no encontrada' });
+        return;
+      }
+      
+      // Obtener los items de la factura
+      db.all('SELECT * FROM invoice_items WHERE invoice_id = ?', [id], (itemsErr, items) => {
+        if (itemsErr) {
+          console.error(`Error al obtener items de factura ${id}:`, itemsErr.message);
+          res.status(500).json({ error: itemsErr.message });
+          return;
+        }
+        
+        invoice.items = items;
+        
+        // Obtener configuración de la empresa y plantilla
+        getSettingsFromDB((settingsErr, settings) => {
+          if (settingsErr) {
+            console.error('Error al obtener configuraciones para factura PDF:', settingsErr.message);
+            res.status(500).json({ error: 'Error al obtener configuraciones' });
+            return;
+          }
+          
+          // En una implementación real, aquí generaríamos el PDF con una biblioteca como PDFKit
+          // Por ahora simularemos este proceso
+          
+          const pdfFilename = `invoice_${id}_${Date.now()}.pdf`;
+          const pdfUrl = `/uploads/${pdfFilename}`;
+          
+          // En una aplicación real, guardaríamos el PDF en disco
+          // Por ahora solo devolvemos la URL simulada
+          
+          res.json({
+            success: true,
+            pdf_url: pdfUrl,
+            invoice_id: id,
+            template_id: template_id || 'default'
+          });
+        });
+      });
+    }
+  );
+});
+
+// Obtener facturas de un cliente específico
+app.get('/api/clients/:clientId/invoices', (req, res) => {
+  const { clientId } = req.params;
+  
+  db.all(
+    'SELECT * FROM invoices WHERE client_id = ? ORDER BY issue_date DESC',
+    [clientId],
+    (err, rows) => {
+      if (err) {
+        console.error(`Error al obtener facturas del cliente ${clientId}:`, err.message);
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      
+      res.json(rows);
+    }
+  );
+});
+
+// --- Gestión de Configuraciones del Sistema ---
+
+// Valores predeterminados para configuraciones
+const defaultSettings = {
+  company: {
+    name: 'Tu Empresa',
+    address: 'Dirección de la empresa',
+    taxId: 'B12345678',
+    email: 'contacto@tuempresa.com',
+    phone: '+34 600000000',
+    website: 'https://www.tuempresa.com',
+    logoUrl: ''
+  },
+  appearance: {
+    theme: 'system',
+    primaryColor: '#3498db',
+    fontSize: 'medium',
+    compactMode: false
+  },
+  notifications: {
+    email: true,
+    browser: true,
+    desktop: false,
+    frequency: 'immediate'
+  },
+  backup: {
+    automatic: true,
+    frequency: 'daily',
+    retain: 7,
+    location: 'local'
+  },
+  email: {
+    smtp: {
+      host: '',
+      port: 587,
+      secure: false,
+      username: '',
+      password: ''
+    },
+    sender: {
+      name: '',
+      email: ''
+    },
+    signature: '',
+    templates: []
+  },
+  invoices: {
+    templates: [
+      {
+        id: 'default-template',
+        name: 'Plantilla Estándar',
+        description: 'Plantilla de factura estándar con logotipo, tabla de items y totales',
+        content: `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Factura {{invoice_number}}</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 20px; color: #333; }
+    .invoice-header { display: flex; justify-content: space-between; margin-bottom: 20px; }
+    .company-details { text-align: left; }
+    .invoice-details { text-align: right; }
+    .client-details { margin-bottom: 20px; border: 1px solid #eee; padding: 10px; background: #f9f9f9; }
+    table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+    th, td { padding: 10px; text-align: left; border-bottom: 1px solid #eee; }
+    th { background-color: #f2f2f2; }
+    .totals { text-align: right; margin-top: 20px; }
+    .footer { margin-top: 40px; text-align: center; color: #777; font-size: 12px; }
+    .paid-stamp { position: absolute; top: 30%; left: 40%; transform: rotate(-30deg); font-size: 48px; color: rgba(0,128,0,0.5); border: 5px solid rgba(0,128,0,0.5); padding: 10px; border-radius: 10px; text-transform: uppercase; }
+  </style>
+</head>
+<body>
+  <div class="invoice-header">
+    <div class="company-details">
+      <h2>{{company_name}}</h2>
+      <p>{{company_address}}<br>
+      CIF/NIF: {{company_tax_id}}<br>
+      {{company_email}}<br>
+      {{company_phone}}</p>
+    </div>
+    <div class="invoice-details">
+      <h1>FACTURA</h1>
+      <p>Factura Nº: {{invoice_number}}<br>
+      Fecha: {{invoice_date}}<br>
+      Vencimiento: {{due_date}}</p>
+    </div>
+  </div>
+
+  <div class="client-details">
+    <h3>Cliente</h3>
+    <p>{{client_name}}<br>
+    {{client_address}}<br>
+    CIF/NIF: {{client_tax_id}}<br>
+    {{client_email}}</p>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Descripción</th>
+        <th>Cantidad</th>
+        <th>Precio</th>
+        <th>Total</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{#each items}}
+      <tr>
+        <td>{{description}}</td>
+        <td>{{quantity}}</td>
+        <td>{{unit_price}} €</td>
+        <td>{{total}} €</td>
+      </tr>
+      {{/each}}
+    </tbody>
+  </table>
+
+  <div class="totals">
+    <p>Subtotal: {{subtotal}} €</p>
+    <p>IVA ({{tax_percent}}%): {{tax_amount}} €</p>
+    <h3>Total: {{total}} €</h3>
+  </div>
+
+  {{#if is_paid}}
+  <div class="paid-stamp">Pagado</div>
+  {{/if}}
+
+  <div class="footer">
+    <p>{{footer_text}}</p>
+  </div>
+</body>
+</html>`,
+        is_default: true,
+        created_at: new Date().toISOString()
+      }
+    ],
+    default_template: 'default-template',
+    auto_numbering: true,
+    prefix: 'FACT-',
+    suffix: '',
+    next_number: 1,
+    logo_position: 'left',
+    show_paid_stamp: true,
+    footer_text: 'Gracias por su confianza. Para cualquier consulta, contacte con nosotros.'
+  }
+};
+
+// Función para obtener las configuraciones
+function getSettingsFromDB(callback) {
+  db.get('SELECT value FROM settings WHERE key = ?', ['system_settings'], (err, row) => {
+    if (err) {
+      console.error('Error al obtener configuraciones:', err.message);
+      callback(err, null);
+      return;
+    }
+    
+    if (!row) {
+      // No hay configuraciones guardadas, usar los valores predeterminados
+      const now = new Date().toISOString();
+      const settingsJson = JSON.stringify(defaultSettings);
+      
+      db.run('INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)', 
+        ['system_settings', settingsJson, now], 
+        (insertErr) => {
+          if (insertErr) {
+            console.error('Error al insertar configuraciones predeterminadas:', insertErr.message);
+            callback(insertErr, null);
+            return;
+          }
+          
+          console.log('Configuraciones predeterminadas guardadas en la base de datos');
+          callback(null, defaultSettings);
+        }
+      );
+    } else {
+      try {
+        const settings = JSON.parse(row.value);
+        callback(null, settings);
+      } catch (parseErr) {
+        console.error('Error al parsear configuraciones:', parseErr.message);
+        callback(parseErr, null);
+      }
+    }
+  });
+}
+
+// GET: Obtener todas las configuraciones
+app.get('/api/settings', (req, res) => {
+  getSettingsFromDB((err, settings) => {
+    if (err) {
+      res.status(500).json({ error: 'Error al obtener configuraciones' });
+      return;
+    }
+    res.json(settings);
+  });
+});
+
+// PUT: Actualizar configuraciones
+app.put('/api/settings', (req, res) => {
+  const newSettings = req.body;
+  const now = new Date().toISOString();
+  
+  // Validar que el cuerpo de la petición no esté vacío
+  if (!newSettings || Object.keys(newSettings).length === 0) {
+    res.status(400).json({ error: 'No se proporcionaron configuraciones para actualizar' });
+    return;
+  }
+  
+  // Obtener configuraciones actuales para fusionarlas con las nuevas
+  getSettingsFromDB((err, currentSettings) => {
+    if (err) {
+      res.status(500).json({ error: 'Error al obtener configuraciones actuales' });
+      return;
+    }
+    
+    // Fusionar configuraciones actuales con las nuevas
+    const updatedSettings = { ...currentSettings, ...newSettings };
+    const settingsJson = JSON.stringify(updatedSettings);
+    
+    db.run('UPDATE settings SET value = ?, updated_at = ? WHERE key = ?', 
+      [settingsJson, now, 'system_settings'], 
+      function(updateErr) {
+        if (updateErr) {
+          console.error('Error al actualizar configuraciones:', updateErr.message);
+          res.status(500).json({ error: 'Error al actualizar configuraciones' });
+          return;
+        }
+        
+        if (this.changes === 0) {
+          // Si no se actualizó ninguna fila, realizar una inserción
+          db.run('INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)', 
+            ['system_settings', settingsJson, now], 
+            (insertErr) => {
+              if (insertErr) {
+                console.error('Error al insertar configuraciones:', insertErr.message);
+                res.status(500).json({ error: 'Error al insertar configuraciones' });
+                return;
+              }
+              console.log('Configuraciones guardadas en la base de datos');
+              res.json(updatedSettings);
+            }
+          );
+        } else {
+          console.log('Configuraciones actualizadas en la base de datos');
+          res.json(updatedSettings);
+        }
+      }
+    );
+  });
+});
+
+// PUT: Actualizar una sección específica de las configuraciones
+app.put('/api/settings/:section', (req, res) => {
+  const { section } = req.params;
+  const sectionData = req.body;
+  const now = new Date().toISOString();
+  
+  // Validar que la sección sea válida
+  if (!['company', 'appearance', 'notifications', 'backup', 'email'].includes(section)) {
+    res.status(400).json({ error: 'Sección de configuración no válida' });
+    return;
+  }
+  
+  // Validar que el cuerpo de la petición no esté vacío
+  if (!sectionData || Object.keys(sectionData).length === 0) {
+    res.status(400).json({ error: 'No se proporcionaron datos para actualizar' });
+    return;
+  }
+  
+  // Obtener configuraciones actuales para actualizar solo la sección específica
+  getSettingsFromDB((err, settings) => {
+    if (err) {
+      res.status(500).json({ error: 'Error al obtener configuraciones actuales' });
+      return;
+    }
+    
+    // Actualizar solo la sección específica
+    settings[section] = { ...settings[section], ...sectionData };
+    const settingsJson = JSON.stringify(settings);
+    
+    db.run('UPDATE settings SET value = ?, updated_at = ? WHERE key = ?', 
+      [settingsJson, now, 'system_settings'], 
+      function(updateErr) {
+        if (updateErr) {
+          console.error(`Error al actualizar sección ${section}:`, updateErr.message);
+          res.status(500).json({ error: 'Error al actualizar configuraciones' });
+          return;
+        }
+        
+        console.log(`Sección ${section} actualizada en la base de datos`);
+        res.json(settings);
+      }
+    );
+  });
+});
+
+// POST: Restablecer configuraciones a valores predeterminados
+app.post('/api/settings/reset', (req, res) => {
+  const now = new Date().toISOString();
+  const settingsJson = JSON.stringify(defaultSettings);
+  
+  db.run('UPDATE settings SET value = ?, updated_at = ? WHERE key = ?', 
+    [settingsJson, now, 'system_settings'], 
+    function(err) {
+      if (err) {
+        console.error('Error al restablecer configuraciones:', err.message);
+        res.status(500).json({ error: 'Error al restablecer configuraciones' });
+        return;
+      }
+      
+      console.log('Configuraciones restablecidas a valores predeterminados');
+      res.json(defaultSettings);
     }
   );
 });

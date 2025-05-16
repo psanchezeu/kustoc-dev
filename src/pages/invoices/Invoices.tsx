@@ -6,6 +6,8 @@ import { Input } from '../../components/ui/Input';
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '../../components/ui/Table';
 import { Invoice } from '../../types';
 import { formatDate, formatCurrency } from '../../lib/utils';
+import { getInvoices, downloadInvoicePdf } from '../../api/invoicesApi';
+import { Printer, Eye, AlertCircle } from 'lucide-react';
 
 /**
  * Página de listado de Facturas
@@ -16,80 +18,23 @@ const Invoices = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [isLoading, setIsLoading] = useState(true);
+  const [printingInvoiceIds, setPrintingInvoiceIds] = useState<string[]>([]);
 
   useEffect(() => {
-    // En una implementación real, llamaríamos a la API
-    const mockInvoices: Invoice[] = [
-      {
-        invoice_id: 'INV001',
-        client_id: 'CLI001',
-        jump_id: 'JMP001',
-        number: 'F-2023-001',
-        amount: 1200,
-        tax_percent: 21,
-        status: 'paid',
-        issue_date: '2023-01-15T10:00:00Z',
-        due_date: '2023-02-15T10:00:00Z',
-        paid_date: '2023-02-10T14:30:00Z',
-        notes: 'Pago por implementación inicial',
-        created_at: '2023-01-15T10:00:00Z',
-      },
-      {
-        invoice_id: 'INV002',
-        client_id: 'CLI002',
-        number: 'F-2023-002',
-        amount: 850,
-        tax_percent: 21,
-        status: 'sent',
-        issue_date: '2023-02-20T15:30:00Z',
-        due_date: '2023-03-20T15:30:00Z',
-        notes: 'Consultoría técnica mensual',
-        created_at: '2023-02-20T15:30:00Z',
-      },
-      {
-        invoice_id: 'INV003',
-        client_id: 'CLI003',
-        jump_id: 'JMP003',
-        number: 'F-2023-003',
-        amount: 1500,
-        tax_percent: 21,
-        status: 'draft',
-        issue_date: '2023-03-05T09:15:00Z',
-        due_date: '2023-04-05T09:15:00Z',
-        notes: 'Desarrollo de Jump Inventario',
-        created_at: '2023-03-05T09:15:00Z',
-      },
-      {
-        invoice_id: 'INV004',
-        client_id: 'CLI001',
-        number: 'F-2023-004',
-        amount: 300,
-        tax_percent: 21,
-        status: 'overdue',
-        issue_date: '2023-04-10T11:00:00Z',
-        due_date: '2023-05-10T11:00:00Z',
-        notes: 'Mantenimiento mensual',
-        created_at: '2023-04-10T11:00:00Z',
-      },
-      {
-        invoice_id: 'INV005',
-        client_id: 'CLI004',
-        jump_id: 'JMP005',
-        number: 'F-2023-005',
-        amount: 2200,
-        tax_percent: 21,
-        status: 'paid',
-        issue_date: '2023-05-22T14:00:00Z',
-        due_date: '2023-06-22T14:00:00Z',
-        paid_date: '2023-06-15T09:45:00Z',
-        notes: 'Implementación Panel Administrativo',
-        created_at: '2023-05-22T14:00:00Z',
-      },
-    ];
+    const fetchInvoices = async () => {
+      try {
+        setIsLoading(true);
+        const data = await getInvoices();
+        setInvoices(data);
+        setFilteredInvoices(data);
+      } catch (error) {
+        console.error('Error al cargar facturas:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
     
-    setInvoices(mockInvoices);
-    setFilteredInvoices(mockInvoices);
-    setIsLoading(false);
+    fetchInvoices();
   }, []);
 
   useEffect(() => {
@@ -100,8 +45,8 @@ const Invoices = () => {
     if (searchTerm) {
       result = result.filter(
         (invoice) => 
-          invoice.number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          invoice.client_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          (invoice.invoice_id && invoice.invoice_id.toLowerCase().includes(searchTerm.toLowerCase())) ||
+          (invoice.client_id && invoice.client_id.toLowerCase().includes(searchTerm.toLowerCase())) ||
           (invoice.notes && invoice.notes.toLowerCase().includes(searchTerm.toLowerCase()))
       );
     }
@@ -151,6 +96,25 @@ const Invoices = () => {
   // Calcular el importe total con impuestos
   const calculateTotal = (amount: number, taxPercent: number) => {
     return amount * (1 + taxPercent / 100);
+  };
+  
+  // Manejar la impresión de facturas
+  const handlePrintInvoice = async (invoiceId: string) => {
+    if (!invoiceId) return;
+    
+    try {
+      // Marcar esta factura como en proceso de impresión
+      setPrintingInvoiceIds((prev) => [...prev, invoiceId]);
+      
+      // Llamar a la API para generar el PDF y abrirlo en una nueva pestaña
+      await downloadInvoicePdf(invoiceId);
+    } catch (error) {
+      console.error('Error al imprimir factura:', error);
+      // Aquí se podría mostrar una notificación de error
+    } finally {
+      // Desmarcar la factura del estado de impresión
+      setPrintingInvoiceIds((prev) => prev.filter(id => id !== invoiceId));
+    }
   };
 
   return (
@@ -213,7 +177,7 @@ const Invoices = () => {
               <TableBody>
                 {filteredInvoices.map((invoice) => (
                   <TableRow key={invoice.invoice_id}>
-                    <TableCell className="font-medium">{invoice.number}</TableCell>
+                    <TableCell className="font-medium">{invoice.invoice_id}</TableCell>
                     <TableCell>
                       <Link to={`/clients/${invoice.client_id}`} className="text-primary hover:underline">
                         Cliente {invoice.client_id}
@@ -221,19 +185,39 @@ const Invoices = () => {
                     </TableCell>
                     <TableCell>{formatDate(invoice.issue_date)}</TableCell>
                     <TableCell>{formatDate(invoice.due_date)}</TableCell>
-                    <TableCell>{formatCurrency(calculateTotal(invoice.amount, invoice.tax_percent), 'EUR')}</TableCell>
+                    <TableCell>{formatCurrency(invoice.total || 0, 'EUR')}</TableCell>
                     <TableCell>
                       <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusBadgeClass(invoice.status)}`}>
                         {getStatusLabel(invoice.status)}
                       </span>
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-right space-x-2">
                       <Link 
                         to={`/invoices/${invoice.invoice_id}`} 
-                        className="font-medium text-primary hover:underline"
+                        className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-primary text-white hover:bg-primary/90"
                       >
-                        Ver detalles
+                        <Eye className="mr-1 h-3 w-3" />
+                        Ver
                       </Link>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="inline-flex items-center px-2 py-1 text-xs"
+                        onClick={() => handlePrintInvoice(invoice.invoice_id)}
+                        disabled={printingInvoiceIds.includes(invoice.invoice_id)}
+                      >
+                        {printingInvoiceIds.includes(invoice.invoice_id) ? (
+                          <>
+                            <div className="mr-1 h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent"></div>
+                            PDF
+                          </>
+                        ) : (
+                          <>
+                            <Printer className="mr-1 h-3 w-3" />
+                            PDF
+                          </>
+                        )}
+                      </Button>
                     </TableCell>
                   </TableRow>
                 ))}
